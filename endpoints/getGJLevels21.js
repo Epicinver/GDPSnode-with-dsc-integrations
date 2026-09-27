@@ -385,6 +385,7 @@ module.exports = {
                 [5, songData.size || 0],
                 [6, songData.videoID || ''],
                 [10, encodeSongValue(songData.link || '')],
+                [11, songData.platform || 0],
                 [16, encodeSongValue(songData.downloadSoundtrackOverride || '')],
                 [7, songData.youtubeURL || ''],
                 [8, songData.allowedForUse ? 1 : 0]
