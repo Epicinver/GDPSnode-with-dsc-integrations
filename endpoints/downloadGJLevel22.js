@@ -110,7 +110,7 @@ module.exports = {
         }
 
         const hash = generateDownloadHash(levelString);
-        const feaID = level.dailyNumber || 0;
+        const feaID = [-1, -2, -3].includes(levelID) ? level.dailyNumber : 0;
         const storedPassword = level.password != null ? String(level.password) : '';
         const owner = db.prepare('SELECT * FROM profiles WHERE accountID = ?').get(level.accountID);
         const password = storedPassword === '' || storedPassword === '1' ? '1' : storedPassword;
@@ -148,7 +148,7 @@ module.exports = {
             `38:${level.starCoins || 0}`,
             `39:${level.requestedStars || 0}`,
             `40:${level.isLDM || 0}`,
-            `41:${level.dailyNumber || ''}`,
+            ...(levelID === -1 || levelID === -2 || levelID === -3 ? [`41:${level.dailyNumber || ''}`] : []),
             `42:${level.starEpic || 0}`,
             `43:${level.starDemonDiff || 0}`,
             `44:${level.inGauntlet || 0}`,
