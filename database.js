@@ -206,8 +206,15 @@ db.exec(`
         youtubeURL TEXT DEFAULT '',
         allowedForUse INTEGER NOT NULL DEFAULT 1,
         link TEXT NOT NULL,
+        platform INTEGER DEFAULT 0, -- 1 for NCS
         size INTEGER NOT NULL DEFAULT 0, -- size in MB, rounded to 2 decimal places: value 1.98 would be 1.98MB
         downloadSoundtrackOverride TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS sfx (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        size INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS content_increments (
@@ -291,6 +298,12 @@ db.exec(`
         createdAt INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lib_update_scheduling (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 0 for music lib, 1 for sfx lib
+        version INTEGER NOT NULL,
+        scheduled INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_accounts_userName ON accounts(userName);
     CREATE INDEX IF NOT EXISTS idx_accounts_gjp2 ON accounts(gjp2);
 
@@ -346,7 +359,7 @@ db.exec(`
 
 const removedColumns = [
     { table: 'songs', column: 'songPriority' },
-    { table: 'songs', column: 'nongEnum' },
+    // { table: 'songs', column: 'nongEnum' },  // renamed to "platform"
     { table: 'songs', column: 'extraArtistIDs' },
     { table: 'songs', column: 'isNew' },
     { table: 'songs', column: 'newType' },
