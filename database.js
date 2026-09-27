@@ -359,7 +359,7 @@ db.exec(`
 
 const removedColumns = [
     { table: 'songs', column: 'songPriority' },
-    // { table: 'songs', column: 'nongEnum' },  // renamed to "platform"
+    { table: 'songs', column: 'nongEnum' },  // renamed to "platform"
     { table: 'songs', column: 'extraArtistIDs' },
     { table: 'songs', column: 'isNew' },
     { table: 'songs', column: 'newType' },
@@ -367,6 +367,7 @@ const removedColumns = [
     { table: 'levels', column: 'extraString' }
 ];
 const addedColumns = [
+    { table: 'songs', column: 'platform', definition: 'INTEGER DEFAULT 0' },
     { table: 'levels', column: 'wt', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt2', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' }
