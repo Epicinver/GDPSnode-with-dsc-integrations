@@ -1,5 +1,6 @@
 const zlib = require("zlib");
 const db = require("./database")
+let musicUpdatePromise;
 
 function bulkInsert(tableName, records) {
     if (records.length === 0) return;
@@ -75,7 +76,7 @@ function parseMusicLib(data) {
 
             // finding the artist
             try { song.artistName = artists[song.artistID] } catch { console.log(song); }
-            if (!song.artistName) song.artistName = fields[7].split(",")[0];
+            if (!song.artistName) song.artistName = (fields[7] || '').split(",")[0];
             // converting the size; rounded to 2 decimal places
             song.size = Math.round(song.size / 1024 / 1024 * 100) / 100;
 
@@ -111,16 +112,19 @@ function parseSFXLib(decodedData) {
     return sfxList;
 }
 
-function fetchMusicLibrary(currentVersion) {
-    fetch("https://geometrydashfiles.b-cdn.net/music/musiclibrary_02.dat")
-    .then((resp) => resp.text())
-    .then((res) => {
-        const decoded = decodeLibrary(res);
-        const songs = parseMusicLib(decoded);
+async function fetchMusicLibrary() {
+    const response = await fetch("https://geometrydashfiles.b-cdn.net/music/musiclibrary_02.dat");
+    if (!response.ok) throw new Error(`Music library download failed: HTTP ${response.status}`);
 
-        bulkInsert("songs", songs);
+    const decoded = decodeLibrary(await response.text());
+    if (!decoded) throw new Error('Music library could not be decompressed');
 
-    });
+    const songs = parseMusicLib(decoded);
+    if (songs.length === 0 || songs.some(song => !Number.isInteger(Number(song.ID)) || Number(song.ID) <= 0)) {
+        throw new Error('Music library data contained no valid songs');
+    }
+
+    bulkInsert("songs", songs);
 }
 
 function fetchSFXLibrary(currentVersion) {
@@ -135,19 +139,40 @@ function fetchSFXLibrary(currentVersion) {
 }
 
 function ensureMusicLib(currentVersion) {
+    if (musicUpdatePromise) return musicUpdatePromise;
+
+    musicUpdatePromise = updateMusicLibrary(currentVersion)
+    .catch((err) => {
+        console.error(`Music library update failed: ${err.message}`);
+    })
+    .finally(() => {
+        musicUpdatePromise = null;
+    });
+
+    return musicUpdatePromise;
+}
+
+async function updateMusicLibrary(currentVersion) {
+    const schedule = db.prepare("SELECT version, verified FROM lib_update_scheduling WHERE id=0").get();
     if (currentVersion === 0) {
-        const t = db.prepare("SELECT version FROM lib_update_scheduling WHERE id=0").get();
-        if (!t) currentVersion = 0;
-        else currentVersion = t.version;
+        currentVersion = schedule?.verified === 1 ? schedule.version : 0;
     }
 
-    fetch("https://geometrydashfiles.b-cdn.net/music/musiclibrary_version_02.txt")
-    .then((resp) => resp.text())
-    .then((res) => {
-        if (Number(res) > currentVersion) fetchMusicLibrary();
-        const scheduled = new Date().getTime() + 60*60*24*7;  // refresh after 1 week
-        db.prepare("INSERT OR REPLACE INTO lib_update_scheduling VALUES (?, ?, ?)").run(0, res, scheduled);
-    })
+    const hasSongs = db.prepare('SELECT 1 FROM songs LIMIT 1').get();
+    if (!hasSongs) currentVersion = 0;
+
+    const response = await fetch("https://geometrydashfiles.b-cdn.net/music/musiclibrary_version_02.txt");
+    if (!response.ok) throw new Error(`Music library version check failed: HTTP ${response.status}`);
+
+    const remoteVersion = Number((await response.text()).trim());
+    if (!Number.isFinite(remoteVersion)) throw new Error('Music library version response was invalid');
+
+    if (remoteVersion > currentVersion || !hasSongs) {
+        await fetchMusicLibrary();
+    }
+
+    const scheduled = Date.now() + 14 * 24 * 60 * 60 * 1000;
+    db.prepare("INSERT OR REPLACE INTO lib_update_scheduling (id, version, scheduled, verified) VALUES (?, ?, ?, 1)").run(0, remoteVersion, scheduled);
 }
 
 function ensureSFXLib(currentVersion) {
@@ -161,7 +186,7 @@ function ensureSFXLib(currentVersion) {
     .then((resp) => resp.text())
     .then((res) => {
         if (Number(res) > currentVersion) fetchSFXLibrary();
-        const scheduled = new Date().getTime() + 60*60*24*7;  // refresh after 1 week
+        const scheduled = new Date().getTime() + 60*60*24*14;  // refresh after 2 weeks (better!)
         db.prepare("INSERT OR REPLACE INTO lib_update_scheduling VALUES (?, ?, ?)").run(1, res, scheduled);
     })
 }

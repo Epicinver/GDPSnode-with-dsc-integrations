@@ -301,7 +301,8 @@ db.exec(`
     CREATE TABLE IF NOT EXISTS lib_update_scheduling (
         id INTEGER PRIMARY KEY AUTOINCREMENT,  -- 0 for music lib, 1 for sfx lib
         version INTEGER NOT NULL,
-        scheduled INTEGER NOT NULL
+        scheduled INTEGER NOT NULL,
+        verified INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS idx_accounts_userName ON accounts(userName);
@@ -368,6 +369,7 @@ const removedColumns = [
 ];
 const addedColumns = [
     { table: 'songs', column: 'platform', definition: 'INTEGER DEFAULT 0' },
+    { table: 'lib_update_scheduling', column: 'verified', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt2', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' }
