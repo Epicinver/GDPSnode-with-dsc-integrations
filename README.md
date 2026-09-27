@@ -71,8 +71,14 @@ Move to a server database when measured write latency or throughput no longer me
 
 To add an endpoint, create a module in `endpoints/` that exports `method`, `path`, and `handler`. It will be registered automatically when the server restarts.
 
+## Note
+This project's versioning system is close to RobTop's. Versions are incremented usually +0.1 for each patch or major version.
+For example, if you see a jump from 1.9R to 2.0R, this doesn't mean it's a major version, it could simply be a minor patch, or even just a version bump.
+
+Keep that in mind when updating your server, only update if you deem it necessary, and always check commit names first, versions don't tell the whole story!
+
 ## License
 
-Open-source as it should be, [MIT Licensed](LICENSE)
+Open-source as all things should be, [MIT Licensed](LICENSE)
 
 Not affiliated with, endorsed or approved by RobTop Games AB. Purchase the game on stores such as [Steam](https://store.steampowered.com/app/322170/Geometry_Dash/), [Google Play Store](https://play.google.com/store/apps/details?id=com.robtopx.geometryjump) or the [Apple App Store](https://apps.apple.com/us/app/geometry-dash/id625334537).

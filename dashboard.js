@@ -455,7 +455,7 @@ router.delete('/api/secret-rewards/:id', requireAuth, requireCsrf, (req, res) =>
 });
 
 router.get('/api/songs', requireAuth, (req, res) => {
-    res.json({ songs: db.prepare('SELECT * FROM songs ORDER BY ID DESC').all() });
+    res.json({ songs: db.prepare("SELECT * FROM songs WHERE link != '-' ORDER BY ID DESC").all() });
 });
 
 router.post('/api/songs', requireAuth, requireCsrf, async (req, res) => {
