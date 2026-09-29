@@ -24,8 +24,10 @@ module.exports = {
         if (account.isDisabled === 1) return res.send('-1');
 
         try {
-            db.prepare('DELETE FROM friendships WHERE person1 = ? AND person2 = ?').run(accountID, targetAccountID);
-            db.prepare('DELETE FROM friendships WHERE person2 = ? AND person1 = ?').run(accountID, targetAccountID);
+            db.transaction(() => {
+                db.prepare('DELETE FROM friendships WHERE person1 = ? AND person2 = ?').run(accountID, targetAccountID);
+                db.prepare('DELETE FROM friendships WHERE person2 = ? AND person1 = ?').run(accountID, targetAccountID);
+            })();
             return res.send('1');
         } catch (err) {
             console.error('\x1b[1;31m✗ Failed to remove friend:\x1b[0m', err);

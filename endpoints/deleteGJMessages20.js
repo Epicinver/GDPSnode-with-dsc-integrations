@@ -25,17 +25,19 @@ module.exports = {
         if (account.isDisabled === 1) return res.send('-1');
 
         try {
-            if (messages) {
-                const messageList = messages.split(',').map(m => parseInt(m, 10)).filter(m => !isNaN(m));
-                if (messageList.length === 0) return res.send('-1');
-                const placeholders = messageList.map(() => '?').join(',');
-                
-                db.prepare(`DELETE FROM messages WHERE ID IN (${placeholders}) AND accID = ? LIMIT 10`).run(...messageList, accountID);
-                db.prepare(`DELETE FROM messages WHERE ID IN (${placeholders}) AND toAccountID = ? LIMIT 10`).run(...messageList, accountID);
-            } else {
-                db.prepare('DELETE FROM messages WHERE ID = ? AND accID = ? LIMIT 1').run(messageID, accountID);
-                db.prepare('DELETE FROM messages WHERE ID = ? AND toAccountID = ? LIMIT 1').run(messageID, accountID);
-            }
+            const messageList = messages ? messages.split(',').map(m => parseInt(m, 10)).filter(m => !isNaN(m)) : [];
+            if (messages && messageList.length === 0) return res.send('-1');
+            const placeholders = messageList.map(() => '?').join(',');
+
+            db.transaction(() => {
+                if (messages) {
+                    db.prepare(`DELETE FROM messages WHERE ID IN (${placeholders}) AND accID = ? LIMIT 10`).run(...messageList, accountID);
+                    db.prepare(`DELETE FROM messages WHERE ID IN (${placeholders}) AND toAccountID = ? LIMIT 10`).run(...messageList, accountID);
+                } else {
+                    db.prepare('DELETE FROM messages WHERE ID = ? AND accID = ? LIMIT 1').run(messageID, accountID);
+                    db.prepare('DELETE FROM messages WHERE ID = ? AND toAccountID = ? LIMIT 1').run(messageID, accountID);
+                }
+            })();
 
             return res.send('1');
         } catch (err) {

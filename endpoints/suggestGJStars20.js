@@ -35,13 +35,16 @@ module.exports = {
         try {
             if (profile.modLevel === 1) {
                 if (stars === 0) return res.send('-1');
-                const action = db.prepare('INSERT INTO modsuggest (accountID, levelID, stars, feature) VALUES (?, ?, ?, ?)');
-                const inf = action.run(accountID, levelID, stars, feature);                
-                
-                const action2 = db.prepare('UPDATE levels SET isSent = 1, lastSent = ? WHERE levelID = ?');
-                const inf2 = action2.run(Math.floor(Date.now() / 1000), levelID);
-                
-                if (inf.changes > 0 && inf2.changes > 0) return res.send('1');
+                const submitted = db.transaction(() => {
+                    const suggestion = db.prepare('INSERT INTO modsuggest (accountID, levelID, stars, feature) VALUES (?, ?, ?, ?)')
+                        .run(accountID, levelID, stars, feature);
+                    const updatedLevel = db.prepare('UPDATE levels SET isSent = 1, lastSent = ? WHERE levelID = ?')
+                        .run(Math.floor(Date.now() / 1000), levelID);
+                    if (suggestion.changes === 0 || updatedLevel.changes === 0) throw new Error('Suggestion was not fully applied');
+                    return true;
+                })();
+
+                if (submitted) return res.send('1');
             } else {
                 let updates = [];
                 let params = [];

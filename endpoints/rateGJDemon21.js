@@ -46,15 +46,17 @@ module.exports = {
 
         if (profile.modLevel === 1) {
             try {
-                const action = db.prepare(
-                    'INSERT INTO modSuggest (accountID, levelID, stars, demonDiff, feature) VALUES (?, ?, ?, ?, ?)'
-                );
-                const inf = action.run(accountID, levelID, 10, rating, 0);
+                const submitted = db.transaction(() => {
+                    const suggestion = db.prepare(
+                        'INSERT INTO modSuggest (accountID, levelID, stars, demonDiff, feature) VALUES (?, ?, ?, ?, ?)'
+                    ).run(accountID, levelID, 10, rating, 0);
+                    const updatedLevel = db.prepare('UPDATE levels SET isSent = 1, lastSent = ? WHERE levelID = ?')
+                        .run(Math.floor(Date.now() / 1000), levelID);
+                    if (suggestion.changes === 0 || updatedLevel.changes === 0) throw new Error('Suggestion was not fully applied');
+                    return true;
+                })();
 
-                const action2 = db.prepare('UPDATE levels SET isSent = 1, lastSent = ? WHERE levelID = ?');
-                const inf2 = action2.run(Math.floor(Date.now() / 1000), levelID);
-
-                if (inf.changes > 0 && inf2.changes > 0) return res.send('1');
+                if (submitted) return res.send('1');
             } catch (err) {
                 console.error('\x1b[1;31m✗ Failed to set demon rating (mod):\x1b[0m', err);
                 return res.send('-1');

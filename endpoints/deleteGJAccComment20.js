@@ -28,7 +28,13 @@ module.exports = {
         if (profile.modLevel !== 2 && comment.accountID !== accountID) return res.send('-1');
 
         try {
-            const inf = db.prepare('DELETE FROM acccomments WHERE commentID = ? AND accountID = ?').run(commentID, targetAccountID);
+            const inf = db.transaction(() => {
+                const result = db.prepare('DELETE FROM acccomments WHERE commentID = ? AND accountID = ?').run(commentID, targetAccountID);
+                if (result.changes > 0) {
+                    db.prepare("DELETE FROM content_increments WHERE contentID = ? AND contentType = 'likes_acccomments'").run(commentID);
+                }
+                return result;
+            })();
             if (inf.changes > 0) return res.send('1');
         } catch (err) {
             console.error('\x1b[1;31m✗ Failed to delete account comment:\x1b[0m', err);

@@ -1,6 +1,7 @@
 let csrf = '';
 let currentLevels = [];
 let dashboardRequestCount = 0;
+const picker = { kind: '', query: '', offset: 0, limit: 10, total: 0 };
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[character]));
 const cocosColors = new Set('bcgljyopr adfs'.replace(/\s/g, '').split(''));
@@ -80,7 +81,7 @@ function clearSearchButton(form) {
 }
 
 function sortLevelResults(levels) {
-    const selector = $('#level-sort');
+    const selector = $('#browse-sort');
     if (!selector) return levels;
     const mode = selector.value || 'id';
     const copy = [...levels];
@@ -170,7 +171,7 @@ function render(data) {
 function renderLevels(levels) {
     currentLevels = Array.isArray(levels) ? levels : [];
     const ordered = sortLevelResults(currentLevels);
-    $('#level-results').innerHTML = ordered.length ? ordered.map(level => `<button class="level-result" data-level="${level.levelID}"><span><strong>${escapeHtml(level.levelName)}</strong><small>#${level.levelID} · ${escapeHtml(level.creator || 'unknown')}</small></span><span>${level.starStars ? `${level.starStars}★` : 'unrated'}${level.starDifficulty ? ` · ${difficultyNames[level.starDifficulty]}` : ''} · ${level.userRates || 0} user ratings</span></button>`).join('') : '<p class="empty">No matching levels.</p>';
+    $('#browse-results').innerHTML = ordered.length ? ordered.map(level => `<button class="level-result" data-level="${level.levelID}"><span><strong>${escapeHtml(level.levelName)}</strong><small>#${level.levelID} · ${escapeHtml(level.creator || 'unknown')}</small></span><span>${level.starStars ? `${level.starStars}★` : 'unrated'}${level.starDifficulty ? ` · ${difficultyNames[level.starDifficulty]}` : ''} · ${level.userRates || 0} user ratings</span></button>`).join('') : '<p class="empty">No matching levels.</p>';
 }
 
 function renderLevelDetail(data) {
@@ -179,10 +180,19 @@ function renderLevelDetail(data) {
     const difficulty = level.starDifficulty ? difficultyNames[level.starDifficulty] : 'Unset';
     const rarity = level.starEpic ? featureNames[level.starEpic + 1] : level.featured ? 'Featured' : 'None';
     const feature = level.starEpic ? level.starEpic + 1 : level.featured ? 1 : 0;
+    const detail = $('#level-detail');
+    detail.style.removeProperty('left');
+    detail.style.removeProperty('top');
+    detail.style.removeProperty('transform');
+    detail.classList.remove('is-dragging');
     $('#level-detail').hidden = false;
     $('#level-detail').innerHTML = `<div class="detail-heading"><div><p class="eyebrow">Level #${level.levelID}</p><h3>${escapeHtml(level.levelName)}</h3></div><button class="close-detail" type="button">Close</button></div><p class="detail-description">${escapeHtml(level.levelDesc || 'No description')}</p><div class="detail-facts"><span>Official <b>${official}</b></span><span>Difficulty <b>${difficulty}</b></span><span>Rarity <b>${rarity}</b></span><span>Users <b>${level.userRates || 0} ratings · ${level.avgUserRate || 0}★ avg</b></span><span>Stats <b>${level.downloads || 0} downloads · ${level.likes || 0} likes</b></span></div><div class="detail-columns"><div><h4>Moderator suggestions (${data.suggestions.length})</h4>${data.suggestions.length ? data.suggestions.map(suggestion => `<div class="suggestion">${suggestionText(suggestion)}</div>`).join('') : '<p class="empty">None</p>'}</div><div><h4>User ratings</h4>${data.ratings.length ? data.ratings.map(rating => `<div class="user-rating"><span>${escapeHtml(rating.userName || `Account #${rating.accountID}`)} · ${rating.stars}★</span><button class="remove-rating" data-account="${rating.accountID}" type="button">Remove</button></div>`).join('') : '<p class="empty">No user ratings</p>'}</div></div><div class="detail-actions"><label>Difficulty<select class="detail-difficulty"${level.starStars ? ' disabled' : ''}><option value="0"${selected(level.starDifficulty, 0)}>Unset</option><option value="1"${selected(level.starDifficulty, 1)}>Easy</option><option value="2"${selected(level.starDifficulty, 2)}>Normal</option><option value="3"${selected(level.starDifficulty, 3)}>Hard</option><option value="4"${selected(level.starDifficulty, 4)}>Harder</option><option value="5"${selected(level.starDifficulty, 5)}>Insane</option></select></label><button class="detail-difficulty-save" type="button"${level.starStars ? ' disabled' : ''}>Save difficulty</button><label>Stars<select class="detail-stars"><option value="0"${selected(level.starStars, 0)}>Unrate</option><option value="1"${selected(level.starStars, 1)}>1</option><option value="2"${selected(level.starStars, 2)}>2</option><option value="3"${selected(level.starStars, 3)}>3</option><option value="4"${selected(level.starStars, 4)}>4</option><option value="5"${selected(level.starStars, 5)}>5</option><option value="6"${selected(level.starStars, 6)}>6</option><option value="7"${selected(level.starStars, 7)}>7</option><option value="8"${selected(level.starStars, 8)}>8</option><option value="9"${selected(level.starStars, 9)}>9</option><option value="10"${selected(level.starStars, 10)}>10</option></select></label><label>Feature<select class="detail-feature"><option value="0"${selected(feature, 0)}>None</option><option value="1"${selected(feature, 1)}>Featured</option><option value="2"${selected(feature, 2)}>Epic</option><option value="3"${selected(feature, 3)}>Legendary</option><option value="4"${selected(feature, 4)}>Mythic</option></select></label><label>Demon<select class="detail-demon"><option value="0"${selected(level.starDemon ? level.starDemonDiff : 0, 0)}>None / Hard</option><option value="3"${selected(level.starDemonDiff, 3)}>Easy</option><option value="4"${selected(level.starDemonDiff, 4)}>Medium</option><option value="5"${selected(level.starDemonDiff, 5)}>Insane</option><option value="6"${selected(level.starDemonDiff, 6)}>Extreme</option></select></label><button class="detail-rate" type="button">Save rating</button></div>`;
     $('#level-detail').querySelector('.detail-description').textContent = decodeBase64Url(level.levelDesc) || 'No description';
+    const dragHandle = $('#level-detail').querySelector('.detail-heading');
+    dragHandle.classList.add('detail-drag-handle');
+    dragHandle.title = 'Drag to move';
     $('#level-detail').insertAdjacentHTML('beforeend', `<div class="detail-metadata"><label>Name<input class="detail-level-name" maxlength="20" value="${escapeHtml(level.levelName)}" required></label><label>Description<textarea class="detail-level-description">${escapeHtml(decodeBase64Url(level.levelDesc))}</textarea></label><label class="detail-coins"><input class="detail-star-coins" type="checkbox"${level.starCoins ? ' checked' : ''}> Verified Coins</label><button class="detail-metadata-save" type="button">Save level details</button></div>`);
+    $('#level-detail').insertAdjacentHTML('beforeend', `<button class="reject detail-delete-level" type="button" data-level="${level.levelID}">Delete level</button>`);
     syncDemonControl($('#level-detail'));
 }
 
@@ -200,7 +210,7 @@ function renderCollections(data) {
 }
 
 function renderAccountResults(users) {
-    $('#account-results').innerHTML = users.length ? users.map(user => {
+    $('#browse-results').innerHTML = users.length ? users.map(user => {
         const expiresAt = Number(user.commentBan || 0);
         const activeBan = expiresAt > Math.floor(Date.now() / 1000);
         return `
@@ -219,7 +229,49 @@ function renderAccountResults(users) {
         </form>
     `;
     }).join('') : '<p class="empty">No matching accounts.</p>';
-    $('#account-results').querySelectorAll('.account-row').forEach(updateCommentBanExpiryControls);
+    $('#browse-results').querySelectorAll('.account-row').forEach(updateCommentBanExpiryControls);
+}
+
+function openPicker(kind) {
+    picker.kind = kind;
+    picker.query = '';
+    picker.offset = 0;
+    $('#browse-kind').textContent = kind === 'levels' ? 'Level search' : kind === 'accounts' ? 'Account management' : 'Custom audio';
+    $('#browse-title').textContent = kind === 'levels' ? 'Browse levels' : kind === 'accounts' ? 'Browse accounts' : 'Browse songs';
+    $('#browse-query').placeholder = kind === 'levels' ? 'Search by level name or ID' : kind === 'accounts' ? 'Search by username or account ID' : 'Search by song, artist, or ID';
+    $('#browse-query').value = '';
+    $('#browse-sort').hidden = kind !== 'levels';
+    $('#browse-sort').value = 'id';
+    $('#level-detail').hidden = true;
+    $('#browse-modal').hidden = false;
+    document.body.classList.add('browser-open');
+    $('#browse-query').focus();
+    loadPickerPage();
+}
+
+async function loadPickerPage() {
+    const params = new URLSearchParams({ q: picker.query, limit: picker.limit, offset: picker.offset });
+    if (picker.kind === 'levels') params.set('sort', $('#browse-sort').value);
+    const endpoint = picker.kind === 'levels' ? 'api/levels' : picker.kind === 'accounts' ? 'api/users' : 'api/songs';
+    const requestId = (picker.requestId || 0) + 1;
+    picker.requestId = requestId;
+    try {
+        const data = await request(`${endpoint}?${params}`);
+        if (requestId !== picker.requestId) return;
+        picker.total = data.total;
+        if (picker.kind === 'levels') renderLevels(data.levels);
+        else if (picker.kind === 'accounts') renderAccountResults(data.users);
+        else renderSongs(data.songs);
+        const page = Math.floor(picker.offset / picker.limit) + 1;
+        const pageCount = Math.max(1, Math.ceil(picker.total / picker.limit));
+        $('#browse-page-status').textContent = `${page} / ${pageCount} · ${picker.total.toLocaleString()} results`;
+        $('#browse-previous').disabled = picker.offset === 0;
+        $('#browse-next').disabled = picker.offset + picker.limit >= picker.total;
+        $('#browse-modal').scrollTop = 0;
+    } catch (error) {
+        if (requestId !== picker.requestId) return;
+        $('#browse-results').innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+    }
 }
 
 function localDateTimeValue(unixTimestamp) {
@@ -252,7 +304,7 @@ function renderSchedule(data) {
 }
 
 function renderSongs(songs) {
-    $('#song-list').innerHTML = songs.length ? songs.map(song => `<div class="song-row"><div><strong>${escapeHtml(song.name)}</strong><span>${escapeHtml(song.artistName)} · #${song.ID} · ${song.size} MB</span></div><a href="${escapeHtml(song.link)}" target="_blank" rel="noreferrer">Open file</a><button type="button" class="reject delete-song" data-song="${song.ID}">Delete</button></div>`).join('') : '<p class="empty">No songs uploaded.</p>';
+    $('#browse-results').innerHTML = songs.length ? songs.map(song => `<div class="song-row"><div><strong>${escapeHtml(song.name)}</strong><span>${escapeHtml(song.artistName)} · #${song.ID} · ${song.size} MB</span></div><a href="${escapeHtml(song.link)}" target="_blank" rel="noreferrer">Open file</a><button type="button" class="reject delete-song" data-song="${song.ID}">Delete</button></div>`).join('') : '<p class="empty">No songs uploaded.</p>';
 }
 
 function setupDashboardUX() {
@@ -269,11 +321,8 @@ function setupDashboardUX() {
     document.addEventListener('keydown', event => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
             event.preventDefault();
-            const target = $('#level-query') || $('#account-query');
-            if (target) {
-                target.focus();
-                target.select();
-            }
+            openPicker('levels');
+            $('#browse-query').select();
         }
     });
 
@@ -393,10 +442,8 @@ async function load() {
         csrf = data.csrf;
         render(data);
         renderCollections(await request('api/collections'));
-        renderSongs((await request('api/songs')).songs);
         renderQuests((await request('api/quests')).quests || []);
         renderSecretRewards((await request('api/secret-rewards')).rewards || []);
-        renderAccountResults((await request('api/users?limit=25')).users);
         renderSchedule(await request('api/server-schedule'));
         $('#login-view').hidden = true;
         $('#app-view').hidden = false;
@@ -541,38 +588,80 @@ $('#level-detail').addEventListener('change', event => {
     if (event.target.classList.contains('detail-stars')) syncDemonControl(event.currentTarget);
 });
 
-$('#level-search').addEventListener('submit', async event => {
+$('#level-detail').addEventListener('pointerdown', event => {
+    const detail = event.currentTarget;
+    if (!event.target.closest('.detail-drag-handle') || event.target.closest('.close-detail')) return;
+    const bounds = detail.getBoundingClientRect();
+    detail.dataset.dragOffsetX = String(event.clientX - bounds.left);
+    detail.dataset.dragOffsetY = String(event.clientY - bounds.top);
+    detail.classList.add('is-dragging');
+    detail.setPointerCapture(event.pointerId);
+});
+
+$('#level-detail').addEventListener('pointermove', event => {
+    const detail = event.currentTarget;
+    if (!detail.classList.contains('is-dragging')) return;
+    const left = event.clientX - Number(detail.dataset.dragOffsetX);
+    const top = event.clientY - Number(detail.dataset.dragOffsetY);
+    detail.style.left = `${Math.max(0, Math.min(left, window.innerWidth - detail.offsetWidth))}px`;
+    detail.style.top = `${Math.max(0, Math.min(top, window.innerHeight - detail.offsetHeight))}px`;
+    detail.style.transform = 'none';
+});
+
+$('#level-detail').addEventListener('pointerup', event => {
+    event.currentTarget.classList.remove('is-dragging');
+});
+
+document.querySelectorAll('.open-browser').forEach(button => button.addEventListener('click', () => openPicker(button.dataset.browser)));
+
+$('#close-browser').addEventListener('click', () => {
+    $('#browse-modal').hidden = true;
+    document.body.classList.remove('browser-open');
+});
+
+$('#browse-search').addEventListener('submit', event => {
     event.preventDefault();
-    const query = new FormData(event.currentTarget).get('query');
-    const button = event.currentTarget.querySelector('button[type="submit"]');
-    setBusyState(button, 'Searching…', true);
-    try {
-        const data = await request(`api/levels?q=${encodeURIComponent(query)}`);
-        renderLevels(data.levels);
-        touchLastSaved('Levels ready');
-        showToast('Levels refreshed', 'success');
-    } catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
-    finally { setBusyState(button, 'Searching…', false); }
+    picker.query = $('#browse-query').value.trim();
+    picker.offset = 0;
+    $('#level-detail').hidden = true;
+    loadPickerPage();
 });
 
-$('#level-sort').addEventListener('change', () => {
-    renderLevels(currentLevels);
-    showToast('Level list sorted', 'success');
+$('#clear-browser-search').addEventListener('click', () => {
+    $('#browse-query').value = '';
+    picker.query = '';
+    picker.offset = 0;
+    $('#level-detail').hidden = true;
+    loadPickerPage();
 });
 
-$('#clear-level-search').addEventListener('click', () => {
-    const form = $('#level-search');
-    if (!form) return;
-    clearSearchButton(form);
-    $('#level-sort').value = 'id';
-    renderLevels([]);
-    form.dispatchEvent(new Event('submit'));
+$('#browse-sort').addEventListener('change', () => {
+    picker.offset = 0;
+    loadPickerPage();
 });
 
-$('#level-results').addEventListener('click', async event => {
+$('#browse-previous').addEventListener('click', () => {
+    picker.offset = Math.max(0, picker.offset - picker.limit);
+    loadPickerPage();
+});
+
+$('#browse-next').addEventListener('click', () => {
+    if (picker.offset + picker.limit < picker.total) {
+        picker.offset += picker.limit;
+        loadPickerPage();
+    }
+});
+
+$('#browse-results').addEventListener('click', async event => {
     const result = event.target.closest('.level-result'); if (!result) return;
-    try { renderLevelDetail(await request(`api/levels/${result.dataset.level}`)); }
+    try {
+        renderLevelDetail(await request(`api/levels/${result.dataset.level}`));
+    }
     catch (error) { $('#app-error').textContent = error.message; }
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !$('#browse-modal').hidden) $('#close-browser').click();
 });
 
 $('#level-detail').addEventListener('click', async event => {
@@ -600,26 +689,6 @@ $('#level-detail').addEventListener('click', async event => {
 });
 
 $('#logout').addEventListener('click', async () => { try { await request('api/logout', { method: 'POST', body: '{}' }); location.reload(); } catch (error) { $('#app-error').textContent = error.message; } });
-
-$('#account-search').addEventListener('submit', async event => {
-    event.preventDefault();
-    const query = new FormData(event.currentTarget).get('query');
-    const button = event.currentTarget.querySelector('button[type="submit"]');
-    setBusyState(button, 'Searching…', true);
-    try {
-        const data = await request(`api/users?q=${encodeURIComponent(query)}`);
-        renderAccountResults(data.users);
-        touchLastSaved('Accounts ready');
-    } catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
-    finally { setBusyState(button, 'Searching…', false); }
-});
-
-$('#clear-account-search').addEventListener('click', () => {
-    const form = $('#account-search');
-    if (!form) return;
-    clearSearchButton(form);
-    form.dispatchEvent(new Event('submit'));
-});
 
 $('#server-schedule-form').addEventListener('submit', async event => {
     event.preventDefault();
@@ -699,6 +768,7 @@ document.addEventListener('submit', async event => {
             };
             await request(`api/users/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) });
             await load();
+            if (picker.kind === 'accounts' && !$('#browse-modal').hidden) await loadPickerPage();
         } catch (error) { $('#app-error').textContent = error.message; }
     } else if (form.id === 'song-form') {
         event.preventDefault();
@@ -707,7 +777,11 @@ document.addEventListener('submit', async event => {
             const response = await fetch('api/songs', { method: 'POST', body: new FormData(form), headers: csrf ? { 'X-CSRF-Token': csrf } : {} });
             if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Request failed (${response.status})`);
             form.reset();
-            renderSongs((await request('api/songs')).songs);
+            if (picker.kind === 'songs' && !$('#browse-modal').hidden) {
+                picker.offset = 0;
+                await loadPickerPage();
+            }
+            showToast('Song uploaded', 'success');
         } catch (error) { $('#app-error').textContent = error.message; }
         finally { endDashboardRequest(); }
     } else if (form.id === 'quest-form') {
@@ -868,6 +942,11 @@ document.addEventListener('click', async event => {
         try {
             await request(`api/levels/${levelId}`, { method: 'DELETE' });
             await load();
+            $('#level-detail').hidden = true;
+            if (picker.kind === 'levels') {
+                if (picker.offset >= picker.total - 1 && picker.offset > 0) picker.offset -= picker.limit;
+                await loadPickerPage();
+            }
             showToast('Level deleted', 'success');
         } catch (error) {
             $('#app-error').textContent = error.message;
@@ -877,7 +956,12 @@ document.addEventListener('click', async event => {
     }
     if (event.target.classList.contains('delete-song')) {
         if (!confirm('Delete this song?')) return;
-        try { await request(`api/songs/${event.target.dataset.song}`, { method: 'DELETE' }); renderSongs((await request('api/songs')).songs); showToast('Song deleted', 'success'); }
+        try {
+            await request(`api/songs/${event.target.dataset.song}`, { method: 'DELETE' });
+            if (picker.offset >= picker.total - 1 && picker.offset > 0) picker.offset -= picker.limit;
+            await loadPickerPage();
+            showToast('Song deleted', 'success');
+        }
         catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
         return;
     }

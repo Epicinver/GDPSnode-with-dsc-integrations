@@ -1,6 +1,7 @@
 const { levelSecret } = require('../middleware/secrets');
 const db = require('../database');
 const utils = require('../utils');
+const { cleanupListRelatedData } = require('../contentCleanup');
 
 module.exports = {
     method: 'post',
@@ -23,12 +24,13 @@ module.exports = {
         if (!account || !list) return res.send('-1');
         if (account.gjp2 !== gjp2) return res.send('-1');
         if (account.isDisabled === 1) return res.send('-1');
+        if ((list.starStars > 0 || list.downloads >= 1000) && profile.modLevel !== 2) return res.send('-1');
         if (profile.modLevel !== 2 && list.accountID !== accountID) return res.send('-1'); // not list owner or mod
 
         try {
             const inf = db.transaction(() => {
                 const result = db.prepare('DELETE FROM lists WHERE listID = ?').run(listID);
-                if (result.changes > 0) db.prepare('DELETE FROM comments WHERE levelID = ?').run(-listID);
+                if (result.changes > 0) cleanupListRelatedData(listID);
                 return result;
             })();
             if (inf.changes > 0) return res.send('1');

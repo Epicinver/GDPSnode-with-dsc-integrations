@@ -6,6 +6,7 @@ const fs = require('fs/promises');
 const db = require('./database');
 const config = require('./config');
 const utils = require('./utils');
+const { cleanupLevelRelatedData, cleanupListRelatedData, cleanupSongReferences } = require('./contentCleanup');
 
 const router = express.Router();
 const sessions = new Map();
@@ -264,9 +265,13 @@ router.get('/api/collections', requireAuth, (req, res) => {
 
 router.get('/api/users', requireAuth, (req, res) => {
     const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 64) : '';
-    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 10);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+    const total = db.prepare(`SELECT COUNT(*) AS total FROM accounts a
+        LEFT JOIN profiles p ON p.accountID = a.accountID
+        WHERE (? = '' OR a.userName LIKE ? ESCAPE '\\' OR COALESCE(p.userName, '') LIKE ? ESCAPE '\\' OR CAST(a.accountID AS TEXT) = ?)`)
+        .get(query, like, like, query).total;
     const users = db.prepare(`SELECT a.accountID, a.userName, a.isDisabled, a.commentBan, a.commentBanReason,
         a.permaCommentBan, a.creatorBanned,
         COALESCE(p.userName, '') AS profileName, COALESCE(p.modLevel, 0) AS modLevel,
@@ -278,7 +283,7 @@ router.get('/api/users', requireAuth, (req, res) => {
         WHERE (? = '' OR a.userName LIKE ? ESCAPE '\\' OR COALESCE(p.userName, '') LIKE ? ESCAPE '\\' OR CAST(a.accountID AS TEXT) = ?)
         ORDER BY a.accountID DESC
         LIMIT ? OFFSET ?`).all(query, like, like, query, limit, offset);
-    res.json({ users, query, offset, limit });
+    res.json({ users, query, offset, limit, total });
 });
 
 router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
@@ -467,7 +472,15 @@ router.delete('/api/secret-rewards/:id', requireAuth, requireCsrf, (req, res) =>
 });
 
 router.get('/api/songs', requireAuth, (req, res) => {
-    res.json({ songs: db.prepare("SELECT * FROM songs WHERE link != '-' ORDER BY ID DESC").all() });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 64) : '';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 10);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+    const where = "link != '-' AND (? = '' OR name LIKE ? ESCAPE '\\' OR artistName LIKE ? ESCAPE '\\' OR CAST(ID AS TEXT) = ?)";
+    const total = db.prepare(`SELECT COUNT(*) AS total FROM songs WHERE ${where}`).get(query, like, like, query).total;
+    const songs = db.prepare(`SELECT * FROM songs WHERE ${where} ORDER BY ID DESC LIMIT ? OFFSET ?`)
+        .all(query, like, like, query, limit, offset);
+    res.json({ songs, query, offset, limit, total });
 });
 
 router.post('/api/songs', requireAuth, requireCsrf, async (req, res) => {
@@ -516,8 +529,30 @@ router.delete('/api/songs/:id', requireAuth, requireCsrf, async (req, res) => {
     const song = db.prepare('SELECT link FROM songs WHERE ID = ?').get(id);
     if (!song) return res.status(404).json({ error: 'Song not found' });
     const fileName = path.basename(new URL(song.link, `${req.protocol}://${req.get('host')}`).pathname);
-    await fs.unlink(path.join(songsDirectory, fileName)).catch(() => {});
-    db.prepare('DELETE FROM songs WHERE ID = ?').run(id);
+    const filePath = path.join(songsDirectory, fileName);
+    let songFile = null;
+    try {
+        songFile = await fs.readFile(filePath).catch(error => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+        });
+        await fs.unlink(filePath).catch(error => {
+            if (error.code !== 'ENOENT') throw error;
+        });
+
+        const deleted = db.transaction(() => {
+            cleanupSongReferences(id);
+            return db.prepare('DELETE FROM songs WHERE ID = ?').run(id);
+        })();
+        if (!deleted.changes) {
+            if (songFile) await fs.writeFile(filePath, songFile);
+            return res.status(404).json({ error: 'Song not found' });
+        }
+    } catch (error) {
+        if (songFile) await fs.writeFile(filePath, songFile).catch(() => {});
+        console.error('\x1b[1;31m✗ Dashboard song deletion failed:\x1b[0m', error);
+        return res.status(500).json({ error: 'Could not delete song' });
+    }
     res.status(204).end();
 });
 
@@ -633,7 +668,7 @@ router.delete('/api/lists/:id', requireAuth, requireCsrf, (req, res) => {
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid level list' });
     const result = db.transaction(() => {
         const deletion = db.prepare('DELETE FROM lists WHERE listID = ?').run(id);
-        if (deletion.changes > 0) db.prepare('DELETE FROM comments WHERE levelID = ?').run(-id);
+        if (deletion.changes > 0) cleanupListRelatedData(id);
         return deletion;
     })();
     if (!result.changes) return res.status(404).json({ error: 'Level list not found' });
@@ -642,17 +677,23 @@ router.delete('/api/lists/:id', requireAuth, requireCsrf, (req, res) => {
 
 router.get('/api/levels', requireAuth, (req, res) => {
     const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
-    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 50);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 10);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+    const sort = ['name', 'stars'].includes(req.query.sort) ? req.query.sort : 'id';
+    const orderBy = sort === 'name' ? 'l.levelName COLLATE NOCASE ASC, l.levelID DESC' :
+        sort === 'stars' ? 'l.starStars DESC, l.uploadDate DESC, l.levelID DESC' : 'l.uploadDate DESC, l.levelID DESC';
+    const total = db.prepare(`SELECT COUNT(*) AS total FROM levels l
+        WHERE (? = '' OR l.levelName LIKE ? ESCAPE '\\' OR CAST(l.levelID AS TEXT) = ?)`)
+        .get(query, like, query).total;
     const levels = db.prepare(`SELECT l.levelID, l.levelName, l.levelDesc, l.levelLength,
         l.starStars, l.starDifficulty, l.starAuto, l.starDemon, l.starDemonDiff,
         l.featured, l.starEpic, l.userRates, l.avgUserRate, l.downloads, l.likes,
         l.isSent, l.uploadDate, p.userName AS creator
         FROM levels l LEFT JOIN profiles p ON p.accountID = l.accountID
         WHERE (? = '' OR l.levelName LIKE ? ESCAPE '\\' OR CAST(l.levelID AS TEXT) = ?)
-        ORDER BY l.uploadDate DESC, l.levelID DESC LIMIT ? OFFSET ?`).all(query, like, query, limit, offset);
-    res.json({ levels, query, offset, limit });
+        ORDER BY ${orderBy} LIMIT ? OFFSET ?`).all(query, like, query, limit, offset);
+    res.json({ levels, query, offset, limit, total });
 });
 
 router.get('/api/levels/:levelId', requireAuth, (req, res) => {
@@ -708,14 +749,10 @@ router.delete('/api/levels/:levelId', requireAuth, requireCsrf, async (req, res)
         });
 
         const result = db.transaction(() => {
+            const currentLevel = db.prepare('SELECT accountID, starStars, featured, starEpic FROM levels WHERE levelID = ?').get(levelId);
+            if (!currentLevel) return { changes: 0 };
             const deleted = db.prepare('DELETE FROM levels WHERE levelID = ?').run(levelId);
-            if (deleted.changes > 0) {
-                db.prepare('DELETE FROM comments WHERE levelID = ?').run(levelId);
-                db.prepare('DELETE FROM modSuggest WHERE levelID = ?').run(levelId);
-                db.prepare('DELETE FROM level_ratings WHERE levelID = ?').run(levelId);
-                db.prepare('DELETE FROM levelscores WHERE levelID = ?').run(levelId);
-                db.prepare('DELETE FROM platscores WHERE levelID = ?').run(levelId);
-            }
+            if (deleted.changes > 0) cleanupLevelRelatedData(levelId, currentLevel);
             return deleted;
         })();
 

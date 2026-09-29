@@ -68,19 +68,17 @@ module.exports = {
             // merge back with cclocallevels
             const finalSaveData = encodedSave + ';' + saveDataArr[1];
             
-            // update account with save data
-            const updateAccount = db.prepare('UPDATE accounts SET saveData = ? WHERE accountID = ?');
-            updateAccount.run(finalSaveData, accountId);
-            
-            // update profile orbs and completed levels
-            const profileCheck = db.prepare('SELECT accountID FROM profiles WHERE accountID = ?');
-            const profile = profileCheck.get(accountId);
-            
-            if (profile) {
-                const updateProfile = db.prepare('UPDATE profiles SET orbs = ?, completedLvls = ? WHERE accountID = ?');
-                updateProfile.run(orbs, lvls, profile.accountID);
-            }
-            
+            const profile = db.prepare('SELECT accountID FROM profiles WHERE accountID = ?').get(accountId);
+            if (!profile) return res.send('-1');
+
+            db.transaction(() => {
+                const savedAccount = db.prepare('UPDATE accounts SET saveData = ? WHERE accountID = ?')
+                    .run(finalSaveData, accountId);
+                const savedProfile = db.prepare('UPDATE profiles SET orbs = ?, completedLvls = ? WHERE accountID = ?')
+                    .run(orbs, lvls, profile.accountID);
+                if (savedAccount.changes === 0 || savedProfile.changes === 0) throw new Error('Account backup was not fully applied');
+            })();
+
             return res.send('1');
             
         } else {

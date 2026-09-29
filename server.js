@@ -30,7 +30,7 @@ const dashboard = require('./dashboard');
 const { closeDB } = require('./database');
 const soundlib = require("./soundlib")
 
-const VERSION = '4.2R';
+const VERSION = '4.3R';
 const VERSION_URL = 'https://raw.githubusercontent.com/giantpreston/gdpsnode/refs/heads/main/version.txt';
 
 async function checkForUpdates() {

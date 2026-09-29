@@ -63,7 +63,7 @@ module.exports = {
             const uploadDate = Math.floor(Date.now() / 1000);
             const inf = db.transaction(() => {
                 const result = db.prepare('INSERT INTO comments (accountID, userName, comment, levelID, timestamp, percent) VALUES (?, ?, ?, ?, ?, ?)').run(accountID, userName, comment, levelID, uploadDate, percent);
-                if (percent !== 0) {
+                if (levelID > 0 && percent !== 0) {
                     const existingScore = db.prepare('SELECT percent FROM levelscores WHERE accountID = ? AND levelID = ?').get(accountID, levelID);
                     if (!existingScore) {
                         db.prepare('INSERT INTO levelscores (accountID, levelID, percent, uploadDate, progresses) VALUES (?, ?, ?, ?, ?)').run(accountID, levelID, percent, uploadDate, '');

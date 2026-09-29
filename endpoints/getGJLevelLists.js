@@ -197,13 +197,12 @@ module.exports = {
             if (/^\d+$/.test(str) && type === 0 && lists.length === 1) {
                 const listID = Number(str);
                 if (accountID) {
-                    const existingIncrement = db.prepare('SELECT * FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, listID, 'list');
-                    if (!existingIncrement) {
+                    db.transaction(() => {
+                        const existingIncrement = db.prepare('SELECT 1 FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, listID, 'list');
+                        if (existingIncrement) return;
                         const inf = db.prepare('UPDATE lists SET downloads = downloads + 1 WHERE listID = ?').run(listID);
-                        if (inf.changes > 0) {
-                            db.prepare('INSERT OR IGNORE INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, listID, 'list');
-                        }
-                    }
+                        if (inf.changes > 0) db.prepare('INSERT INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, listID, 'list');
+                    })();
                 }
             }
 

@@ -97,16 +97,14 @@ module.exports = {
 
         let incremented = false;
         if (gjp2 && accountID && gjp2 === account.gjp2 && inc === 1) {
-            const existingIncrement = db.prepare('SELECT * FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, level.levelID, 'level');
-            
-            if (!existingIncrement) {
+            incremented = db.transaction(() => {
+                const existingIncrement = db.prepare('SELECT 1 FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, level.levelID, 'level');
+                if (existingIncrement) return false;
                 const inf = db.prepare('UPDATE levels SET downloads = downloads + 1 WHERE levelID = ?').run(level.levelID);
-                incremented = inf.changes > 0;
-                
-                if (incremented) {
-                    db.prepare('INSERT OR IGNORE INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, level.levelID, 'level');
-                }
-            }
+                if (inf.changes === 0) return false;
+                db.prepare('INSERT INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, level.levelID, 'level');
+                return true;
+            })();
         }
 
         const hash = generateDownloadHash(levelString);

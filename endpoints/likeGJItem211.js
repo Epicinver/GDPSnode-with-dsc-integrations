@@ -52,17 +52,21 @@ module.exports = {
                 break;
         }
 
-        const sign = like === 1 ? '+' : '-';
         try {
-            let incremented = false;
-            const existingIncrement = db.prepare('SELECT * FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, itemID, content);
-            if (existingIncrement) return res.send('1');
+            const result = db.transaction(() => {
+                const existingIncrement = db.prepare('SELECT 1 FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, itemID, content);
+                if (existingIncrement && like === 1) return true;
 
-            const inf = db.prepare(`UPDATE ${table} SET likes = likes ${sign} 1 WHERE ${column} = ?`).run(itemID);
-            incremented = inf.changes > 0;
-            if (incremented) db.prepare('INSERT OR IGNORE INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, itemID, content);
+                const operation = like === 1 ? '+' : '-';
+                const updated = db.prepare(`UPDATE ${table} SET likes = likes ${operation} 1 WHERE ${column} = ?`).run(itemID);
+                if (updated.changes === 0) return false;
+                if (like === 1) {
+                    db.prepare('INSERT INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, itemID, content);
+                }
+                return true;
+            })();
 
-            if (inf.changes > 0) return res.send('1');
+            if (result) return res.send('1');
         } catch (err) {
             console.error('\x1b[1;31m✗ Failed to change likes:\x1b[0m', err);
         }

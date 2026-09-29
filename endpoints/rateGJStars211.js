@@ -32,47 +32,49 @@ module.exports = {
         if (account.gjp2 !== gjp2) return res.send('-1');
         if (account.isDisabled === 1) return res.send('-1');
 
-        db.prepare(`
-            INSERT INTO level_ratings (levelID, accountID, stars)
-            VALUES (?, ?, ?)
-            ON CONFLICT(levelID, accountID) DO UPDATE SET stars = excluded.stars
-        `).run(levelID, accountID, stars);
+        db.transaction(() => {
+            db.prepare(`
+                INSERT INTO level_ratings (levelID, accountID, stars)
+                VALUES (?, ?, ?)
+                ON CONFLICT(levelID, accountID) DO UPDATE SET stars = excluded.stars
+            `).run(levelID, accountID, stars);
 
-        const allRatings = db.prepare('SELECT stars FROM level_ratings WHERE levelID = ?').all(levelID).map(r => r.stars);
-        const userRates = allRatings.length;
+            const allRatings = db.prepare('SELECT stars FROM level_ratings WHERE levelID = ?').all(levelID).map(r => r.stars);
+            const userRates = allRatings.length;
 
-        const totalSum = allRatings.reduce((acc, curr) => acc + curr, 0);
-        const avgUserRate = Math.round(totalSum / userRates);
+            const totalSum = allRatings.reduce((acc, curr) => acc + curr, 0);
+            const avgUserRate = Math.round(totalSum / userRates);
 
-        const filtered = allRatings.filter(s => s > 1 && s < 10);
+            const filtered = allRatings.filter(s => s > 1 && s < 10);
 
-        let noMinMaxAvgUserRate = 0;
-        let noMinMaxMinUserRate = 0;
-        let noMinMaxMaxUserRate = 0;
+            let noMinMaxAvgUserRate = 0;
+            let noMinMaxMinUserRate = 0;
+            let noMinMaxMaxUserRate = 0;
 
-        if (filtered.length > 0) {
-            const filteredSum = filtered.reduce((acc, curr) => acc + curr, 0);
-            noMinMaxAvgUserRate = Math.round(filteredSum / filtered.length);
-            noMinMaxMinUserRate = Math.min(...filtered);
-            noMinMaxMaxUserRate = Math.max(...filtered);
-        }
+            if (filtered.length > 0) {
+                const filteredSum = filtered.reduce((acc, curr) => acc + curr, 0);
+                noMinMaxAvgUserRate = Math.round(filteredSum / filtered.length);
+                noMinMaxMinUserRate = Math.min(...filtered);
+                noMinMaxMaxUserRate = Math.max(...filtered);
+            }
 
-        db.prepare(`
-            UPDATE levels SET
-                userRates = ?,
-                avgUserRate = ?,
-                noMinMaxAvgUserRate = ?,
-                noMinMaxMinUserRate = ?,
-                noMinMaxMaxUserRate = ?
-            WHERE levelID = ?
-        `).run(
-            userRates,
-            avgUserRate,
-            noMinMaxAvgUserRate,
-            noMinMaxMinUserRate,
-            noMinMaxMaxUserRate,
-            levelID
-        );
+            db.prepare(`
+                UPDATE levels SET
+                    userRates = ?,
+                    avgUserRate = ?,
+                    noMinMaxAvgUserRate = ?,
+                    noMinMaxMinUserRate = ?,
+                    noMinMaxMaxUserRate = ?
+                WHERE levelID = ?
+            `).run(
+                userRates,
+                avgUserRate,
+                noMinMaxAvgUserRate,
+                noMinMaxMinUserRate,
+                noMinMaxMaxUserRate,
+                levelID
+            );
+        })();
 
         return res.send('1');
     }

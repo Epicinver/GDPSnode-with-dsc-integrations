@@ -1,6 +1,7 @@
 const { levelSecret } = require('../middleware/secrets');
 const db = require('../database');
 const utils = require('../utils');
+const { cleanupLevelRelatedData } = require('../contentCleanup');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -31,6 +32,7 @@ module.exports = {
         if (!level) return res.send('-1'); // level doesn't exist
         if (gjp2 !== account.gjp2) return res.send('-1'); // doesn't own account
         if (account.isDisabled === 1) return res.send('-1');
+        if ((level.starStars > 0 || level.downloads >= 1000) && profile.modLevel !== 2) return res.send('-1'); // if your level is rated, you can't delete it unless you're mod
         if (level.accountID !== accountID && profile.modLevel !== 2) return res.send('-1'); // doesn't own level/isn't mod
 
         // level deletion
@@ -54,11 +56,20 @@ module.exports = {
             });
 
             const info = db.transaction(() => {
+                const currentLevel = db.prepare('SELECT accountID, starStars, featured, starEpic FROM levels WHERE levelID = ?').get(levelID);
+                if (!currentLevel) return { changes: 0, denied: false };
+                if (currentLevel.starStars > 0 && profile.modLevel !== 2) {
+                    return { changes: 0, denied: true };
+                }
                 const result = db.prepare('DELETE FROM levels WHERE levelID = ?').run(levelID);
-                if (result.changes > 0) db.prepare('DELETE FROM comments WHERE levelID = ?').run(levelID);
-                return result;
+                if (result.changes > 0) cleanupLevelRelatedData(levelID, currentLevel);
+                return { changes: result.changes, denied: false };
             })();
 
+            if (info.denied) {
+                if (levelData) await fs.writeFile(filePath, levelData);
+                return res.send('-1');
+            }
             if (info.changes > 0) return res.send('1');
         } catch (err) {
             if (levelData) await fs.writeFile(filePath, levelData).catch(restoreError => {

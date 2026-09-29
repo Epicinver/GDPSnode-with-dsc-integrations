@@ -28,16 +28,25 @@ module.exports = {
         const gjp2 = utils.generateGJP2(password);
         const create = db.prepare('INSERT INTO accounts (userName, gjp2, isDisabled) VALUES (?, ?, ?)');
         const create2 = db.prepare('INSERT INTO profiles (accountID, userName) VALUES (?, ?)');
-        const info = create.run(username, gjp2, 0);
-        const accountID = info.lastInsertRowid;
-        const info2 = create2.run(accountID, username);
+        try {
+            const created = db.transaction(() => {
+                const info = create.run(username, gjp2, 0);
+                const accountID = info.lastInsertRowid;
+                const profile = create2.run(accountID, username);
 
-        if (accountID === 72) {
-            db.prepare('INSERT INTO messages (subject, body, accID, userName, toAccountID, timestamp) VALUES (?, ?, ?, ?, ?, ?)').run('V2VsY29tZSB0byBHRFBTbm9kZSE=', 'ZVxTW1oRTV1AEVdbQBVSWVtdRlhfUxJydWFnXFpVVBUSbF5ERhJGVENCV0cRWEcSUl5eUBJBXhFTXRsRaFtHFVxYU1pBEUZVXEERRVsSVllUV1kVUl5aQVpdVBRUWkMRVVxMEUZVQFtYX1NBFV5DFFdHQ15GQRVQX1ASRUNeRFdHXUgUQVBFEUFCFUVZURJRUEJcUFpQQ1ASQlhFXBJMXkRGEhtUX0ISQ1BDXVNXXVRHHBViWFpRUBFIW0cSQ1QURl1UEVJbR0JFFFNWUl5BXEEdEU1dQBFZVURQEVNRV1sRVkZTW0VUUBJ4XlVRQFRFXkYSVFJSUUFGHxFzXRVFXhRgcGARW1wVRVlREn1UXUQSRlRSQFtaXxFbVBViVEBGXF9WRxJBXhFVUUFYR1VGUBFYQBIdWF9TU1hUGBoSfVBHURJTRF8UDgY=', 71, 'GDPSnode Notifications', accountID, Math.floor(Date.now() / 1000));
-            db.prepare('UPDATE profiles SET modLevel = ? WHERE accountID = ?').run(2, accountID);
+                if (accountID === 72) {
+                    db.prepare('INSERT INTO messages (subject, body, accID, userName, toAccountID, timestamp) VALUES (?, ?, ?, ?, ?, ?)').run('V2VsY29tZSB0byBHRFBTbm9kZSE=', 'ZVxTW1oRTV1AEVdbQBVSWVtdRlhfUxJydWFnXFpVVBUSbF5ERhJGVENCV0cRWEcSUl5eUBJBXhFTXRsRaFtHFVxYU1pBEUZVXEERRVsSVllUV1kVUl5aQVpdVBRUWkMRVVxMEUZVQFtYX1NBFV5DFFdHQ15GQRVQX1ASRUNeRFdHXUgUQVBFEUFCFUVZURJRUEJcUFpQQ1ASQlhFXBJMXkRGEhtUX0ISQ1BDXVNXXVRHHBViWFpRUBFIW0cSQ1QURl1UEVJbR0JFFFNWUl5BXEEdEU1dQBFZVURQEVNRV1sRVkZTW0VUUBJ4XlVRQFRFXkYSVFJSUUFGHxFzXRVFXhRgcGARW1wVRVlREn1UXUQSRlRSQFtaXxFbVBViVEBGXF9WRxJBXhFVUUFYR1VGUBFYQBIdWF9TU1hUGBoSfVBHURJTRF8UDgY=', 71, 'GDPSnode Notifications', accountID, Math.floor(Date.now() / 1000));
+                    db.prepare('UPDATE profiles SET modLevel = ? WHERE accountID = ?').run(2, accountID);
+                }
+
+                if (info.changes === 0 || profile.changes === 0) throw new Error('Account was not fully created');
+                return true;
+            })();
+
+            if (created) return res.send('1');
+        } catch (err) {
+            console.error('\x1b[1;31m✗ Failed to register account:\x1b[0m', err);
         }
-
-        if (info.changes > 0 && info2.changes > 0) return res.send('1');
         return res.send('-1');
     }
 };
