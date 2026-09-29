@@ -128,6 +128,7 @@ module.exports = {
         }   
         if (type === 4) order = 'uploadDate DESC';
         if (type === 5) {
+            order = 'uploadDate DESC';
             conditions.push('accountID = ?');
             params.push(str - 1); // userID in GDPSnode is accountID + 1, so accountID is userID - 1;
         }
@@ -136,6 +137,7 @@ module.exports = {
             order = 'likes DESC';
         }
         if (type === 7) {
+            order = 'uploadDate DESC';
             conditions.push('objects > 9999'); // nice job github.com/Cvolton/GMDprivateServer/blob/master/incl/levels/getGJLevels.php (line 205)
             conditions.push('starStars = 0'); // typically only unrated lvls on magic
         }
@@ -182,6 +184,7 @@ module.exports = {
             } else {
                 conditions.push('1 = 0');
             }
+            order = 'uploadDate DESC';
         }
         if (type === 21) {
             conditions.push('NOT dailyNumber = 0');

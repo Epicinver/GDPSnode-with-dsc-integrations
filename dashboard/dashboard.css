@@ -19,6 +19,57 @@
 ::selection { background: var(--lime); color: #111a12; }
 button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button:focus, button:focus-visible, input:focus, input:focus-visible, select:focus, select:focus-visible, textarea:focus, textarea:focus-visible { outline: none !important; box-shadow: none !important; }
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
+    display: inline-block;
+    margin: 0;
+    background: #0a0e0c;
+    background-image: none;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 0 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background-size 160ms ease;
+}
+input[type="checkbox"]:hover:not(:disabled) {
+    border-color: var(--lime-soft);
+    background-color: var(--panel-soft);
+}
+input[type="checkbox"]:focus,
+input[type="checkbox"]:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border-color: var(--line);
+}
+input[type="checkbox"]:checked {
+    background-color: var(--lime);
+    border-color: var(--lime);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.1L4.7 8.3L9.5 3.5' fill='none' stroke='%23111a12' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: 12px 12px;
+    box-shadow: inset 0 0 0 2px rgba(17, 26, 18, 0.12);
+    animation: checkbox-pop 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+input[type="checkbox"]:checked:hover {
+    background-image: none;
+    background-size: 0 0;
+}
+input[type="checkbox"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+@keyframes checkbox-pop {
+    0% { transform: scale(0.8); }
+    60% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
 html, body {
     margin: 0;
     padding: 0;
@@ -60,9 +111,9 @@ body {
 label { font-size: 12px; font-weight: 600; display: grid; gap: 7px; }
 input, select, textarea { width: 100%; border: 1px solid var(--line); background: #0a0e0c; padding: 11px 12px; font: inherit; color: var(--ink); border-radius: 0; caret-color: var(--lime-soft); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease; }
 input::selection, select::selection { background: var(--lime-halo); color: var(--lime-soft); }
-input:not(:disabled):hover,
+input:not([type="checkbox"]):not(:disabled):hover,
 textarea:not(:disabled):hover { border-color: var(--lime-soft); background: var(--panel-soft); color: var(--lime-soft); }
-input:not(:disabled):focus,
+input:not([type="checkbox"]):not(:disabled):focus,
 textarea:not(:disabled):focus { border-color: var(--lime-soft); background: var(--panel-soft); color: var(--lime-soft); box-shadow: 0 0 0 2px var(--lime-halo), inset 0 0 0 1px var(--lime-soft); }
 select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpolygon points='6,9 1,4 11,4' fill='%23d9f5b2'/%3E%3C/svg%3E"); background-position: right 12px center; background-size: 12px 12px; background-repeat: no-repeat; padding-right: 36px; }
 select:hover { border-color: var(--lime-soft); background-color: var(--panel-soft); color: var(--lime-soft); }

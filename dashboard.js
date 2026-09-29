@@ -267,7 +267,8 @@ router.get('/api/users', requireAuth, (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
-    const users = db.prepare(`SELECT a.accountID, a.userName, a.isDisabled,
+    const users = db.prepare(`SELECT a.accountID, a.userName, a.isDisabled, a.commentBan, a.commentBanReason,
+        a.permaCommentBan, a.creatorBanned,
         COALESCE(p.userName, '') AS profileName, COALESCE(p.modLevel, 0) AS modLevel,
         COALESCE(p.stars, 0) AS stars, COALESCE(p.demons, 0) AS demons,
         COALESCE(p.icon, 0) AS icon, COALESCE(p.iconType, 0) AS iconType,
@@ -284,9 +285,17 @@ router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
     const accountId = Number(req.params.accountId);
     const modLevel = Number(req.body?.modLevel);
     const isDisabled = Number(req.body?.isDisabled);
+    const commentBan = Number(req.body?.commentBan);
+    const commentBanReason = typeof req.body?.commentBanReason === 'string' ? req.body.commentBanReason.trim().slice(0, 64) : '';
+    const permaCommentBan = Number(req.body?.permaCommentBan);
+    const creatorBanned = Number(req.body?.creatorBanned);
+    const currentTime = Math.floor(Date.now() / 1000);
     if (!Number.isInteger(accountId) || accountId < 1) return res.status(400).json({ error: 'Invalid account' });
     if (!Number.isInteger(modLevel) || modLevel < 0 || modLevel > 3) return res.status(400).json({ error: 'Invalid moderator level' });
     if (!Number.isInteger(isDisabled) || (isDisabled !== 0 && isDisabled !== 1)) return res.status(400).json({ error: 'Invalid disabled flag' });
+    if (!Number.isInteger(commentBan) || commentBan < 0 || (commentBan !== 0 && (commentBan <= currentTime || commentBan > currentTime + 31536000))) return res.status(400).json({ error: 'Invalid comment ban expiry' });
+    if (!Number.isInteger(permaCommentBan) || (permaCommentBan !== 0 && permaCommentBan !== 1)) return res.status(400).json({ error: 'Invalid permanent comment ban flag' });
+    if (!Number.isInteger(creatorBanned) || (creatorBanned !== 0 && creatorBanned !== 1)) return res.status(400).json({ error: 'Invalid creator ban flag' });
 
     const account = db.prepare('SELECT userName FROM accounts WHERE accountID = ?').get(accountId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
@@ -298,8 +307,11 @@ router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
         } else {
             db.prepare('UPDATE profiles SET modLevel = ?, userName = ? WHERE accountID = ?').run(modLevel, account.userName, accountId);
         }
-        db.prepare('UPDATE accounts SET isDisabled = ? WHERE accountID = ?').run(isDisabled, accountId);
-        return { modLevel, isDisabled };
+        const sanitizedReason = permaCommentBan === 1 || commentBan > 0 ? commentBanReason : '';
+        db.prepare('UPDATE accounts SET isDisabled = ?, commentBan = ?, commentBanReason = ?, permaCommentBan = ?, creatorBanned = ? WHERE accountID = ?').run(
+            isDisabled, commentBan, sanitizedReason, permaCommentBan, creatorBanned, accountId
+        );
+        return { modLevel, isDisabled, commentBan, commentBanReason: sanitizedReason, permaCommentBan, creatorBanned };
     });
 
     res.json(transaction());
@@ -674,6 +686,48 @@ router.put('/api/levels/:levelId/details', requireAuth, requireCsrf, (req, res) 
     );
     if (!result.changes) return res.status(404).json({ error: 'Level not found' });
     res.status(204).end();
+});
+
+router.delete('/api/levels/:levelId', requireAuth, requireCsrf, async (req, res) => {
+    const levelId = Number(req.params.levelId);
+    if (!Number.isInteger(levelId) || levelId < 1) return res.status(400).json({ error: 'Invalid level' });
+    const level = db.prepare('SELECT levelID, accountID, levelName FROM levels WHERE levelID = ?').get(levelId);
+    if (!level) return res.status(404).json({ error: 'Level not found' });
+
+    const levelsDir = path.join(__dirname, 'levels');
+    const filePath = path.join(levelsDir, `${levelId}.gdcs`);
+    let levelData = null;
+
+    try {
+        levelData = await fs.readFile(filePath).catch(error => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+        });
+        await fs.unlink(filePath).catch(error => {
+            if (error.code !== 'ENOENT') throw error;
+        });
+
+        const result = db.transaction(() => {
+            const deleted = db.prepare('DELETE FROM levels WHERE levelID = ?').run(levelId);
+            if (deleted.changes > 0) {
+                db.prepare('DELETE FROM comments WHERE levelID = ?').run(levelId);
+                db.prepare('DELETE FROM modSuggest WHERE levelID = ?').run(levelId);
+                db.prepare('DELETE FROM level_ratings WHERE levelID = ?').run(levelId);
+                db.prepare('DELETE FROM levelscores WHERE levelID = ?').run(levelId);
+                db.prepare('DELETE FROM platscores WHERE levelID = ?').run(levelId);
+            }
+            return deleted;
+        })();
+
+        if (!result.changes) return res.status(404).json({ error: 'Level not found' });
+        res.status(204).end();
+    } catch (error) {
+        if (levelData) {
+            await fs.writeFile(filePath, levelData).catch(() => {});
+        }
+        console.error('\x1b[1;31m✗ Dashboard level deletion failed:\x1b[0m', error);
+        res.status(500).json({ error: 'Could not delete level' });
+    }
 });
 
 router.post('/api/rate', requireAuth, requireCsrf, (req, res) => {

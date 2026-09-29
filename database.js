@@ -229,7 +229,8 @@ db.exec(`
         person1 INTEGER NOT NULL,
         person2 INTEGER NOT NULL,
         isNew1 INTEGER NOT NULL,
-        isNew2 INTEGER NOT NULL
+        isNew2 INTEGER NOT NULL,
+        friendsSince INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS blocks (
@@ -372,7 +373,8 @@ const addedColumns = [
     { table: 'lib_update_scheduling', column: 'verified', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt2', definition: 'INTEGER NOT NULL DEFAULT 0' },
-    { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' }
+    { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'friendships', column: 'friendsSince', definition: 'INTEGER NOT NULL DEFAULT 0' }
 ];
 
 db.transaction(() => {

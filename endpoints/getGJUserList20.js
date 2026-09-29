@@ -28,13 +28,14 @@ module.exports = {
         const isNewMap = {};
 
         if (type === 0) {
-            results = db.prepare('SELECT person1, isNew1, person2, isNew2 FROM friendships WHERE person1 = ? OR person2 = ?').all(accountID, accountID);
+            results = db.prepare('SELECT person1, isNew1, person2, isNew2, friendsSince FROM friendships WHERE person1 = ? OR person2 = ?').all(accountID, accountID);
             
             if (results.length === 0) return res.send('-2');
 
             for (const friendship of results) {
                 let person = friendship.person1;
                 let isNew = friendship.isNew1;
+                let friendsSince = friendship.friendsSince || 0;
                 
                 if (friendship.person1 === accountID) {
                     person = friendship.person2;
@@ -43,6 +44,7 @@ module.exports = {
                 
                 people.push(person);
                 isNewMap[person] = isNew;
+                isNewMap[`${person}:friendsSince`] = friendsSince;
             }
 
             db.prepare('UPDATE friendships SET isNew1 = 0 WHERE person2 = ?').run(accountID);
@@ -65,7 +67,8 @@ module.exports = {
             
             if (profile) {
                 const isNew = isNewMap[personID] || 0;
-                peopleString += `1:${profile.userName}:2:${profile.accountID + 1}:9:${profile.icon}:10:${profile.color1}:11:${profile.color2}:14:${profile.iconType}:15:${profile.special}:16:${profile.accountID}:8:${profile.creatorPoints}:41:${isNew}|`;
+                const friendsSince = isNewMap[`${personID}:friendsSince`] || 0;
+                peopleString += `1:${profile.userName}:2:${profile.accountID + 1}:9:${profile.icon}:10:${profile.color1}:11:${profile.color2}:14:${profile.iconType}:15:${profile.special}:16:${profile.accountID}:8:${profile.creatorPoints}:41:${isNew}:64:${friendsSince}|`;
             }
         }
 

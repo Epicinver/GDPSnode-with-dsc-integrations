@@ -200,7 +200,10 @@ function renderCollections(data) {
 }
 
 function renderAccountResults(users) {
-    $('#account-results').innerHTML = users.length ? users.map(user => `
+    $('#account-results').innerHTML = users.length ? users.map(user => {
+        const expiresAt = Number(user.commentBan || 0);
+        const activeBan = expiresAt > Math.floor(Date.now() / 1000);
+        return `
         <form class="account-row" data-account="${user.accountID}">
           <div class="account-main">
             <strong>${escapeHtml(user.userName || user.profileName || `Account #${user.accountID}`)}</strong>
@@ -208,9 +211,21 @@ function renderAccountResults(users) {
           </div>
           <label>Mod level<select name="modLevel"><option value="0"${selected(user.modLevel, 0)}>Player</option><option value="1"${selected(user.modLevel, 1)}>Advisor</option><option value="2"${selected(user.modLevel, 2)}>Mod</option><option value="3"${selected(user.modLevel, 3)}>Leaderboard</option></select></label>
           <label>Disabled<select name="isDisabled"><option value="0"${selected(user.isDisabled, 0)}>No</option><option value="1"${selected(user.isDisabled, 1)}>Yes</option></select></label>
+          <label>Comment ban<div class="expiry-stack"><select name="commentBanPreset"><option value="none"${Number(user.commentBan || 0) <= Math.floor(Date.now() / 1000) ? ' selected' : ''}>No temporary ban</option><option value="1d">1 day</option><option value="custom">Custom length</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">365 days</option><option value="date"${activeBan ? ' selected' : ''}>Specific date/time</option></select><div class="comment-ban-duration-fields" hidden><div class="mini-grid"><input name="commentBanDays" type="number" min="0" step="1" value="0" placeholder="days"><input name="commentBanHours" type="number" min="0" max="23" step="1" value="0" placeholder="hours"><input name="commentBanMinutes" type="number" min="0" max="59" step="1" value="0" placeholder="minutes"></div></div><div class="comment-ban-expiry-date" hidden><input name="commentBanExpiresAt" type="datetime-local" step="1" value="${activeBan ? localDateTimeValue(expiresAt) : ''}"></div></div></label>
+          <label>Reason<input name="commentBanReason" maxlength="64" value="${escapeHtml(user.commentBanReason || '')}" aria-label="Comment ban reason"></label>
+          <label>Perma Comment ban<select name="permaCommentBan"><option value="0"${selected(user.permaCommentBan || 0, 0)}>No</option><option value="1"${selected(user.permaCommentBan || 0, 1)}>Yes</option></select></label>
+          <label>Creator ban<select name="creatorBanned"><option value="0"${selected(user.creatorBanned || 0, 0)}>No</option><option value="1"${selected(user.creatorBanned || 0, 1)}>Yes</option></select></label>
           <button type="submit">Save</button>
         </form>
-    `).join('') : '<p class="empty">No matching accounts.</p>';
+    `;
+    }).join('') : '<p class="empty">No matching accounts.</p>';
+    $('#account-results').querySelectorAll('.account-row').forEach(updateCommentBanExpiryControls);
+}
+
+function localDateTimeValue(unixTimestamp) {
+    const date = new Date(Number(unixTimestamp) * 1000);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
 }
 
 function renderSchedule(data) {
@@ -419,6 +434,7 @@ function getDurationSecondsFromForm(form, selector = { preset: '[name="durationP
     if (neverExpires) return 0;
 
     const preset = (selector.preset ? form.querySelector(selector.preset)?.value : null) || 'custom';
+    if (preset === 'none') return 0;
     const customDays = Number((selector.days ? form.querySelector(selector.days)?.value : 0) || 0);
     const customHours = Number((selector.hours ? form.querySelector(selector.hours)?.value : 0) || 0);
     const customMinutes = Number((selector.minutes ? form.querySelector(selector.minutes)?.value : 0) || 0);
@@ -444,15 +460,31 @@ function getDurationSecondsFromForm(form, selector = { preset: '[name="durationP
 }
 
 function getScheduleExpiryFromForm(form) {
-    const duration = getDurationSecondsFromForm(form, {
+    const expiresAt = getExpiryTimestampFromForm(form, {
         preset: '[name="scheduleExpiryPreset"]',
         days: '[name="scheduleDurationDays"]',
         hours: '[name="scheduleDurationHours"]',
         minutes: '[name="scheduleDurationMinutes"]',
         date: '[name="scheduleExpiresAt"]'
     });
-    if (duration <= 0) throw new Error('Schedule levels must have an expiry');
-    return Math.floor(Date.now() / 1000) + duration;
+    if (expiresAt <= 0) throw new Error('Schedule levels must have an expiry');
+    return expiresAt;
+}
+
+function getExpiryTimestampFromForm(form, selector) {
+    const preset = form.querySelector(selector.preset)?.value || 'custom';
+    if (preset === 'none') return 0;
+    const dateValue = selector.date ? form.querySelector(selector.date)?.value : '';
+    if (preset === 'date') {
+        if (!dateValue) throw new Error('Choose a valid expiry date and time');
+        const expiresAt = new Date(dateValue);
+        if (Number.isNaN(expiresAt.getTime())) throw new Error('Choose a valid expiry date and time');
+        const timestamp = Math.floor(expiresAt.getTime() / 1000);
+        if (timestamp <= Math.floor(Date.now() / 1000)) throw new Error('Expiry date must be later than now');
+        return timestamp;
+    }
+    const duration = getDurationSecondsFromForm(form, selector);
+    return duration > 0 ? Math.floor(Date.now() / 1000) + duration : 0;
 }
 
 function getSecretRewardDurationFromForm(form) {
@@ -460,22 +492,31 @@ function getSecretRewardDurationFromForm(form) {
 }
 
 function updateSecretRewardFormControls(form) {
-    const neverExpires = form.querySelector('[name="neverExpires"]')?.checked;
-    const preset = form.querySelector('[name="durationPreset"]')?.value || 'custom';
-    const durationFields = form.querySelector('.secret-duration-fields');
-    const dateField = form.querySelector('.secret-expiry-date');
-    const durationDays = form.querySelector('[name="durationDays"]');
-    const durationHours = form.querySelector('[name="durationHours"]');
-    const durationMinutes = form.querySelector('[name="durationMinutes"]');
+    updateExpiryControls(form, {
+        preset: '[name="durationPreset"]',
+        never: '[name="neverExpires"]',
+        durationFields: '.secret-duration-fields',
+        dateFields: '.secret-expiry-date',
+        durationInputs: ['[name="durationDays"]', '[name="durationHours"]', '[name="durationMinutes"]'],
+        dateInput: '[name="expiresAt"]'
+    });
+}
 
+function updateExpiryControls(form, selectors) {
+    const preset = form.querySelector(selectors.preset)?.value || 'custom';
+    const neverExpires = selectors.never && form.querySelector(selectors.never)?.checked;
     const useCustomLength = !neverExpires && preset === 'custom';
-    const useDateField = !neverExpires && preset === 'date';
-
-    if (durationFields) durationFields.hidden = neverExpires || useDateField;
-    if (dateField) dateField.hidden = neverExpires || !useDateField;
-    if (durationDays) durationDays.disabled = neverExpires || useDateField;
-    if (durationHours) durationHours.disabled = neverExpires || useDateField;
-    if (durationMinutes) durationMinutes.disabled = neverExpires || useDateField;
+    const useDate = !neverExpires && preset === 'date';
+    const durationFields = form.querySelector(selectors.durationFields);
+    const dateFields = form.querySelector(selectors.dateFields);
+    if (durationFields) durationFields.hidden = !useCustomLength;
+    if (dateFields) dateFields.hidden = !useDate;
+    for (const inputSelector of selectors.durationInputs || []) {
+        const input = form.querySelector(inputSelector);
+        if (input) input.disabled = !useCustomLength;
+    }
+    const dateInput = selectors.dateInput ? form.querySelector(selectors.dateInput) : null;
+    if (dateInput) dateInput.disabled = !useDate;
 }
 
 $('#queue').addEventListener('click', async event => {
@@ -641,9 +682,20 @@ document.addEventListener('submit', async event => {
         event.preventDefault();
         try {
             const accountId = form.dataset.account;
+            const formData = new FormData(form);
             const payload = {
-                modLevel: Number(new FormData(form).get('modLevel')),
-                isDisabled: Number(new FormData(form).get('isDisabled'))
+                modLevel: Number(formData.get('modLevel')),
+                isDisabled: Number(formData.get('isDisabled')),
+                commentBan: getExpiryTimestampFromForm(form, {
+                    preset: '[name="commentBanPreset"]',
+                    days: '[name="commentBanDays"]',
+                    hours: '[name="commentBanHours"]',
+                    minutes: '[name="commentBanMinutes"]',
+                    date: '[name="commentBanExpiresAt"]'
+                }),
+                commentBanReason: String(formData.get('commentBanReason') || '').trim(),
+                permaCommentBan: Number(formData.get('permaCommentBan')) || 0,
+                creatorBanned: Number(formData.get('creatorBanned')) || 0
             };
             await request(`api/users/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) });
             await load();
@@ -722,22 +774,30 @@ document.addEventListener('change', event => {
         const form = event.target.closest('#server-schedule-form');
         if (form) updateScheduleExpiryControls(form);
     }
+    if (event.target.matches('[name="commentBanPreset"]')) {
+        const form = event.target.closest('.account-row');
+        if (form) updateCommentBanExpiryControls(form);
+    }
 });
 
 function updateScheduleExpiryControls(form) {
-    const preset = form.querySelector('[name="scheduleExpiryPreset"]')?.value || 'custom';
-    const durationFields = form.querySelector('.schedule-duration-fields');
-    const dateField = form.querySelector('.schedule-expiry-date');
-    const days = form.querySelector('[name="scheduleDurationDays"]');
-    const hours = form.querySelector('[name="scheduleDurationHours"]');
-    const minutes = form.querySelector('[name="scheduleDurationMinutes"]');
+    updateExpiryControls(form, {
+        preset: '[name="scheduleExpiryPreset"]',
+        durationFields: '.schedule-duration-fields',
+        dateFields: '.schedule-expiry-date',
+        durationInputs: ['[name="scheduleDurationDays"]', '[name="scheduleDurationHours"]', '[name="scheduleDurationMinutes"]'],
+        dateInput: '[name="scheduleExpiresAt"]'
+    });
+}
 
-    const useDateField = preset === 'date';
-    if (durationFields) durationFields.hidden = useDateField;
-    if (dateField) dateField.hidden = !useDateField;
-    if (days) days.disabled = useDateField;
-    if (hours) hours.disabled = useDateField;
-    if (minutes) minutes.disabled = useDateField;
+function updateCommentBanExpiryControls(form) {
+    updateExpiryControls(form, {
+        preset: '[name="commentBanPreset"]',
+        durationFields: '.comment-ban-duration-fields',
+        dateFields: '.comment-ban-expiry-date',
+        durationInputs: ['[name="commentBanDays"]', '[name="commentBanHours"]', '[name="commentBanMinutes"]'],
+        dateInput: '[name="commentBanExpiresAt"]'
+    });
 }
 
 const secretRewardForm = document.getElementById('secret-reward-form');
@@ -799,6 +859,20 @@ document.addEventListener('click', async event => {
         if (!confirm(`Remove ${type} slot #${slot}?`)) return;
         try { await request(`api/server-schedule/${type}/${slot}`, { method: 'DELETE' }); renderSchedule(await request('api/server-schedule')); showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} slot removed`, 'success'); }
         catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
+        return;
+    }
+    if (event.target.classList.contains('detail-delete-level')) {
+        const levelId = Number(event.target.dataset.level);
+        if (!Number.isInteger(levelId) || levelId < 1) return;
+        if (!confirm(`Delete level #${levelId}? This cannot be undone.`)) return;
+        try {
+            await request(`api/levels/${levelId}`, { method: 'DELETE' });
+            await load();
+            showToast('Level deleted', 'success');
+        } catch (error) {
+            $('#app-error').textContent = error.message;
+            showToast(error.message, 'error');
+        }
         return;
     }
     if (event.target.classList.contains('delete-song')) {

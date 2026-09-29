@@ -33,8 +33,9 @@ module.exports = {
                 const recipientFriendCount = db.prepare('SELECT COUNT(*) as count FROM friendships WHERE person1 = ? OR person2 = ?').get(accountID, accountID).count;
                 if (senderFriendCount >= MAX_FRIENDS || recipientFriendCount >= MAX_FRIENDS) return false;
 
+                const friendsSince = Math.floor(Date.now() / 1000);
                 const existingFriendship = db.prepare('SELECT ID FROM friendships WHERE (person1 = ? AND person2 = ?) OR (person1 = ? AND person2 = ?)').get(request.accountID, accountID, accountID, request.accountID);
-                if (!existingFriendship) db.prepare('INSERT INTO friendships (person1, person2, isNew1, isNew2) VALUES (?, ?, 1, 1)').run(request.accountID, accountID);
+                if (!existingFriendship) db.prepare('INSERT INTO friendships (person1, person2, isNew1, isNew2, friendsSince) VALUES (?, ?, 1, 1, ?)').run(request.accountID, accountID, friendsSince);
                 const deleted = db.prepare('DELETE FROM friendreqs WHERE ID = ?').run(requestID);
                 if (deleted.changes !== 1) throw new Error('Friend request was not consumed');
                 return true;

@@ -56,6 +56,7 @@ module.exports = {
             const timeLeft = account.commentBan - Math.floor(Date.now() / 1000);
             if (timeLeft > 0 && account.commentBanReason) return res.send(`temp_${timeLeft}_${account.commentBanReason}`);
             if (timeLeft > 0 && !account.commentBanReason) return res.send(`temp_${timeLeft}`);
+            if (timeLeft <= 0) db.prepare("UPDATE accounts SET commentBan = 0, commentBanReason = '' WHERE accountID = ?").run(account.accountID);
         }
 
         try {
