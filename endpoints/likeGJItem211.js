@@ -55,14 +55,12 @@ module.exports = {
         try {
             const result = db.transaction(() => {
                 const existingIncrement = db.prepare('SELECT 1 FROM content_increments WHERE accountID = ? AND contentID = ? AND contentType = ?').get(accountID, itemID, content);
-                if (existingIncrement && like === 1) return true;
+                if (existingIncrement) return true;
 
                 const operation = like === 1 ? '+' : '-';
                 const updated = db.prepare(`UPDATE ${table} SET likes = likes ${operation} 1 WHERE ${column} = ?`).run(itemID);
                 if (updated.changes === 0) return false;
-                if (like === 1) {
-                    db.prepare('INSERT INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, itemID, content);
-                }
+                db.prepare('INSERT INTO content_increments (accountID, contentID, contentType) VALUES (?, ?, ?)').run(accountID, itemID, content);
                 return true;
             })();
 
