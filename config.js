@@ -67,7 +67,6 @@ module.exports = {
     }
 };
 
-// Retained for backwards compatibility with older code that expects direct access to a single object.
 module.exports.dashboardPath = module.exports.dashboard.path;
 module.exports.dashboardPassword = module.exports.dashboard.password;
 module.exports.dashboardUser = module.exports.dashboard.user;
