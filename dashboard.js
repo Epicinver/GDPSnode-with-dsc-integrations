@@ -8,6 +8,29 @@ const config = require('./config');
 const utils = require('./utils');
 const { cleanupLevelRelatedData, cleanupListRelatedData, cleanupSongReferences } = require('./contentCleanup');
 
+const DASHBOARD_FEATURES = ['overview', 'levels', 'collections', 'management', 'users', 'schedule', 'leaderboard', 'plugins'];
+const DASHBOARD_FEATURE_LABELS = {
+    overview: 'Overview',
+    levels: 'Level moderation',
+    collections: 'Collections',
+    management: 'Server management',
+    users: 'Accounts and moderation',
+    schedule: 'Daily, weekly, and event schedule',
+    leaderboard: 'Leaderboard moderation',
+    plugins: 'Plugin tools'
+};
+const DEFAULT_DASHBOARD_PERMISSIONS = {
+    0: [],
+    1: ['overview', 'leaderboard'],
+    2: ['overview', 'levels', 'collections', 'management', 'users', 'schedule', 'leaderboard', 'plugins'],
+    3: ['overview', 'leaderboard']
+};
+const MODERATOR_RANK = { 0: 0, 3: 1, 1: 2, 2: 3 };
+
+function getModeratorRank(modLevel) {
+    return MODERATOR_RANK[Number(modLevel)] ?? -1;
+}
+
 const router = express.Router();
 const sessions = new Map();
 const sessionTtl = 8 * 60 * 60 * 1000;
@@ -36,10 +59,74 @@ function sameSecret(left, right) {
     return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function issueSession(res) {
+function normalizeFeatureList(value) {
+    if (value === '*' || value === null || value === undefined) return [...DASHBOARD_FEATURES];
+    if (typeof value !== 'string') return [];
+    return [...new Set(value.split(',').map(item => item.trim()).filter(Boolean).filter(feature => DASHBOARD_FEATURES.includes(feature)))];
+}
+
+function getDashboardPermissionSchema() {
+    const row = db.prepare('SELECT schema FROM dashboard_permission_schema WHERE id = 1').get();
+    if (!row) return { roles: DEFAULT_DASHBOARD_PERMISSIONS };
+
+    try {
+        const stored = JSON.parse(row.schema);
+        const roles = {};
+        for (const modLevel of [0, 1, 2, 3]) {
+            const permissions = stored.roles?.[modLevel];
+            roles[modLevel] = Array.isArray(permissions)
+                ? [...new Set(permissions.filter(feature => DASHBOARD_FEATURES.includes(feature)))].sort()
+                : [...DEFAULT_DASHBOARD_PERMISSIONS[modLevel]];
+        }
+        return { roles };
+    } catch {
+        return { roles: DEFAULT_DASHBOARD_PERMISSIONS };
+    }
+}
+
+function getDefaultDashboardFeatures(modLevel) {
+    return [...(getDashboardPermissionSchema().roles[modLevel] || [])];
+}
+
+function getDashboardAccess(accountId) {
+    const profile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(accountId);
+    const modLevel = Number(profile?.modLevel || 0);
+    const defaults = new Set(getDefaultDashboardFeatures(modLevel));
+    const row = db.prepare('SELECT allowedFeatures, restrictedBy, updatedAt FROM dashboard_access WHERE accountID = ?').get(accountId);
+
+    if (!row) {
+        return { modLevel, allowedFeatures: [...defaults].sort() };
+    }
+
+    const override = row.allowedFeatures;
+    const allowed = override === '*' ? [...defaults] : normalizeFeatureList(override).filter(feature => defaults.has(feature));
+    return { modLevel, allowedFeatures: [...new Set(allowed)].sort(), restrictedBy: row.restrictedBy || 0, updatedAt: row.updatedAt || 0 };
+}
+
+function hasDashboardFeature(accountId, feature) {
+    if (!feature) return false;
+    const access = getDashboardAccess(accountId);
+    return access.allowedFeatures.includes(feature);
+}
+
+function requireDashboardFeature(feature) {
+    return (req, res, next) => {
+        const session = getSession(req);
+        if (!session || !session.accountID) return res.status(401).json({ error: 'Authentication required' });
+        if (!hasDashboardFeature(session.accountID, feature)) {
+            return res.status(403).json({ error: `Access denied for ${feature}` });
+        }
+        req.dashboardSession = session;
+        req.dashboardAccess = getDashboardAccess(session.accountID);
+        next();
+    };
+}
+
+function issueSession(res, accountId, modLevel) {
     const id = crypto.randomBytes(32).toString('hex');
     const csrf = crypto.randomBytes(24).toString('hex');
-    sessions.set(id, { csrf, expires: Date.now() + sessionTtl });
+    const features = getDashboardAccess(accountId).allowedFeatures;
+    sessions.set(id, { accountID: accountId, modLevel, features, csrf, expires: Date.now() + sessionTtl });
     const flags = ['HttpOnly', 'SameSite=Strict', `Max-Age=${sessionTtl / 1000}`, `Path=${dashboardPath}`];
     if (secureCookies) flags.push('Secure');
     res.setHeader('Set-Cookie', `dashboard_session=${id}; ${flags.join('; ')}`);
@@ -58,6 +145,7 @@ function requireAuth(req, res, next) {
     const session = getSession(req);
     if (!session) return res.status(401).json({ error: 'Authentication required' });
     req.dashboardSession = session;
+    req.dashboardAccess = getDashboardAccess(session.accountID);
     next();
 }
 
@@ -215,14 +303,42 @@ router.use((req, res, next) => {
 router.get('/', (req, res) => res.sendFile(path.join(__dirname, 'dashboard', 'index.html')));
 router.use(express.json({ limit: '32kb' }));
 
+router.use('/api/collections', requireAuth, requireDashboardFeature('collections'));
+router.use('/api/gauntlets', requireAuth, requireDashboardFeature('collections'));
+router.use('/api/map-packs', requireAuth, requireDashboardFeature('collections'));
+router.use('/api/lists', requireAuth, requireDashboardFeature('collections'));
+router.use('/api/levels', requireAuth, requireDashboardFeature('levels'));
+router.use('/api/rate', requireAuth, requireDashboardFeature('levels'));
+router.use('/api/reject', requireAuth, requireDashboardFeature('levels'));
+router.use('/api/users', requireAuth, requireDashboardFeature('users'));
+router.use('/api/server-schedule', requireAuth, requireDashboardFeature('schedule'));
+router.use('/api/secret-rewards', requireAuth, requireDashboardFeature('management'));
+router.use('/api/songs', requireAuth, requireDashboardFeature('management'));
+router.use('/api/quests', requireAuth, requireDashboardFeature('management'));
+
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 router.post('/api/login', loginLimiter, (req, res) => {
-    const elder = Number.isInteger(dashboardAccountId) ? db.prepare('SELECT userName, modLevel FROM profiles WHERE accountID = ?').get(dashboardAccountId) : null;
-    if (!dashboardUser || !dashboardPassword || !elder || elder.modLevel !== 2) return res.status(503).json({ error: 'Dashboard mod credentials are not configured' });
-    if (!sameSecret(req.body?.username, dashboardUser) || !sameSecret(req.body?.username, elder.userName) || !sameSecret(req.body?.password, dashboardPassword)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+    const username = utils.remove(String(req.body?.username || '')).trim();
+    const password = String(req.body?.password || '');
+    const account = username ? db.prepare('SELECT * FROM accounts WHERE LOWER(userName) = ?').get(utils.normalizeUsername(username)) : null;
+    const profile = account ? db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(account.accountID) : null;
+    const validInGameCredentials = Boolean(account && profile && getModeratorRank(profile.modLevel) > 0 && account.gjp2 === utils.generateGJP2(password));
+    const legacyCredentialsConfigured = Boolean(dashboardUser && dashboardPassword && Number.isInteger(dashboardAccountId));
+    const legacyAccount = legacyCredentialsConfigured ? db.prepare('SELECT userName, modLevel FROM profiles WHERE accountID = ?').get(dashboardAccountId) : null;
+    const legacyValid = Boolean(legacyAccount && getModeratorRank(legacyAccount.modLevel) >= getModeratorRank(2) && sameSecret(String(req.body?.username || ''), dashboardUser) && sameSecret(String(req.body?.username || ''), legacyAccount.userName) && sameSecret(String(req.body?.password || ''), dashboardPassword));
+
+    if (!validInGameCredentials && !legacyValid) {
+        return res.status(401).json({ error: 'Invalid dashboard credentials' });
     }
-    res.json({ csrf: issueSession(res) });
+
+    const authenticatedAccount = validInGameCredentials ? account : legacyAccount ? db.prepare('SELECT * FROM accounts WHERE accountID = ?').get(dashboardAccountId) : null;
+    const authenticatedProfile = authenticatedAccount ? db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(authenticatedAccount.accountID) : null;
+    if (!authenticatedAccount || !authenticatedProfile || getModeratorRank(authenticatedProfile.modLevel) < 1 || authenticatedAccount.isDisabled === 1) {
+        return res.status(403).json({ error: 'Account is not allowed to use the dashboard' });
+    }
+
+    const csrf = issueSession(res, authenticatedAccount.accountID, authenticatedProfile.modLevel);
+    res.json({ csrf, accountID: authenticatedAccount.accountID, modLevel: authenticatedProfile.modLevel, features: getDashboardAccess(authenticatedAccount.accountID).allowedFeatures });
 });
 
 router.post('/api/logout', requireAuth, requireCsrf, (req, res) => {
@@ -232,24 +348,124 @@ router.post('/api/logout', requireAuth, requireCsrf, (req, res) => {
     res.status(204).end();
 });
 
+router.get('/api/access', requireAuth, (req, res) => {
+    const current = db.prepare('SELECT modLevel, userName FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    const access = getDashboardAccess(req.dashboardSession.accountID);
+    const row = db.prepare('SELECT allowedFeatures, restrictedBy, updatedAt FROM dashboard_access WHERE accountID = ?').get(req.dashboardSession.accountID);
+    res.json({
+        modLevel: current?.modLevel || 0,
+        username: current?.userName || '',
+        features: access.allowedFeatures,
+        customRestrictions: row ? { allowedFeatures: row.allowedFeatures, restrictedBy: row.restrictedBy, updatedAt: row.updatedAt } : null,
+        csrf: req.dashboardSession.csrf
+    });
+});
+
+router.get('/api/access/:accountId', requireAuth, requireDashboardFeature('users'), (req, res) => {
+    const targetAccountId = Number(req.params.accountId);
+    const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    const targetAccount = db.prepare('SELECT accountID FROM accounts WHERE accountID = ?').get(targetAccountId);
+    const targetProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(targetAccountId) || { modLevel: 0 };
+    if (!requesterProfile) return res.status(403).json({ error: 'Moderator profile required' });
+    if (!targetAccount) return res.status(404).json({ error: 'Target account not found' });
+    if (getModeratorRank(targetProfile.modLevel) > getModeratorRank(requesterProfile.modLevel)) return res.status(403).json({ error: 'You cannot manage access for a higher-ranked mod' });
+
+    const access = getDashboardAccess(targetAccountId);
+    const row = db.prepare('SELECT allowedFeatures, restrictedBy, updatedAt FROM dashboard_access WHERE accountID = ?').get(targetAccountId);
+    res.json({
+        accountId: targetAccountId,
+        modLevel: targetProfile.modLevel,
+        defaults: getDefaultDashboardFeatures(targetProfile.modLevel),
+        rolePermissions: getDashboardPermissionSchema().roles,
+        features: access.allowedFeatures,
+        featureCatalog: DASHBOARD_FEATURES.map(key => ({ key, label: DASHBOARD_FEATURE_LABELS[key] })),
+        customRestrictions: row ? { allowedFeatures: row.allowedFeatures, restrictedBy: row.restrictedBy, updatedAt: row.updatedAt } : null
+    });
+});
+
+router.put('/api/access/:accountId', requireAuth, requireDashboardFeature('users'), requireCsrf, (req, res) => {
+    const targetAccountId = Number(req.params.accountId);
+    const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    const targetProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(targetAccountId);
+    if (!requesterProfile) return res.status(403).json({ error: 'Moderator profile required' });
+    if (!targetProfile) return res.status(404).json({ error: 'Target account not found' });
+
+    const rawFeatures = Array.isArray(req.body?.features) ? req.body.features : [];
+    const cleaned = [...new Set(rawFeatures.map(String).map(item => item.trim()).filter(item => DASHBOARD_FEATURES.includes(item)))];
+    const defaultFeatures = new Set(getDefaultDashboardFeatures(targetProfile.modLevel));
+    const filtered = cleaned.filter(feature => defaultFeatures.has(feature));
+
+    if (getModeratorRank(targetProfile.modLevel) > getModeratorRank(requesterProfile.modLevel)) {
+        return res.status(403).json({ error: 'You cannot manage access for a higher-ranked mod' });
+    }
+
+    if (req.body?.inheritDefaults === true) {
+        db.prepare('DELETE FROM dashboard_access WHERE accountID = ?').run(targetAccountId);
+        return res.json({ accountID: targetAccountId, features: [...defaultFeatures].sort(), inherited: true });
+    }
+
+    const nextValue = filtered.join(',');
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare('INSERT INTO dashboard_access (accountID, allowedFeatures, updatedAt, restrictedBy) VALUES (?, ?, ?, ?) ON CONFLICT(accountID) DO UPDATE SET allowedFeatures = excluded.allowedFeatures, updatedAt = excluded.updatedAt, restrictedBy = excluded.restrictedBy').run(targetAccountId, nextValue, now, req.dashboardSession.accountID);
+    res.json({ accountID: targetAccountId, features: filtered });
+});
+
+router.get('/api/permissions/schema', requireAuth, (req, res) => {
+    const profile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    if (!profile || getModeratorRank(profile.modLevel) < getModeratorRank(2)) return res.status(403).json({ error: 'Only mods can manage the permission schema' });
+    const row = db.prepare('SELECT updatedAt, updatedBy FROM dashboard_permission_schema WHERE id = 1').get();
+    res.json({
+        roles: getDashboardPermissionSchema().roles,
+        features: DASHBOARD_FEATURES.map(key => ({ key, label: DASHBOARD_FEATURE_LABELS[key] })),
+        updatedAt: row?.updatedAt || 0,
+        updatedBy: row?.updatedBy || 0
+    });
+});
+
+router.put('/api/permissions/schema', requireAuth, requireCsrf, (req, res) => {
+    const profile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    if (!profile || getModeratorRank(profile.modLevel) < getModeratorRank(2)) return res.status(403).json({ error: 'Only mods can manage the permission schema' });
+
+    const rawRoles = req.body?.roles;
+    if (!rawRoles || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) {
+        return res.status(400).json({ error: 'A role permission map is required' });
+    }
+
+    const roles = {};
+    for (const modLevel of [0, 1, 2, 3]) {
+        const permissions = rawRoles[modLevel];
+        if (!Array.isArray(permissions) || permissions.some(feature => !DASHBOARD_FEATURES.includes(feature))) {
+            return res.status(400).json({ error: `Invalid permissions for moderator level ${modLevel}` });
+        }
+        roles[modLevel] = [...new Set(permissions)].sort();
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(`INSERT INTO dashboard_permission_schema (id, schema, updatedAt, updatedBy) VALUES (1, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET schema = excluded.schema, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy`)
+        .run(JSON.stringify({ roles }), now, req.dashboardSession.accountID);
+    res.json({ roles, updatedAt: now });
+});
+
 router.get('/api/bootstrap', requireAuth, (req, res) => {
-    const stats = db.prepare(`SELECT
+    const features = new Set(req.dashboardAccess.allowedFeatures);
+    const stats = features.has('overview') ? db.prepare(`SELECT
         (SELECT COUNT(*) FROM accounts) AS accounts,
         (SELECT COUNT(*) FROM levels) AS levels,
         (SELECT COUNT(*) FROM profiles WHERE modLevel > 0) AS moderators,
         (SELECT COUNT(*) FROM profiles WHERE modLevel = 2) AS elders,
-        (SELECT COUNT(*) FROM modSuggest) AS pending`).get();
-    const pending = db.prepare(`SELECT m.levelID, m.stars, m.demonDiff, m.feature, l.levelName,
+        (SELECT COUNT(*) FROM modSuggest) AS pending`).get() : null;
+    const pending = features.has('levels') ? db.prepare(`SELECT m.levelID, m.stars, m.demonDiff, m.feature, l.levelName,
         l.levelLength, l.uploadDate, p.userName AS moderator
         FROM modSuggest m JOIN levels l ON l.levelID = m.levelID
         LEFT JOIN profiles p ON p.accountID = m.accountID
-        ORDER BY l.lastSent DESC, l.levelID DESC LIMIT 100`).all();
-    const recent = db.prepare(`SELECT l.levelID, l.levelName, l.starStars, l.starDifficulty, l.starDemon,
+        ORDER BY l.lastSent DESC, l.levelID DESC LIMIT 100`).all() : [];
+    const recent = features.has('levels') ? db.prepare(`SELECT l.levelID, l.levelName, l.starStars, l.starDifficulty, l.starDemon,
         l.starDemonDiff, l.featured, l.starEpic, l.starAuto, l.userRates, l.avgUserRate,
         l.uploadDate, p.userName AS creator
         FROM levels l LEFT JOIN profiles p ON p.accountID = l.accountID
-        ORDER BY l.uploadDate DESC LIMIT 25`).all();
-    res.json({ stats, pending, recent, motd: config.motd ?? '', csrf: req.dashboardSession.csrf });
+        ORDER BY l.uploadDate DESC LIMIT 25`).all() : [];
+    res.json({ stats, pending, recent, motd: config.motd ?? '', csrf: req.dashboardSession.csrf, features: [...features] });
 });
 
 router.get('/api/collections', requireAuth, (req, res) => {
@@ -263,7 +479,7 @@ router.get('/api/collections', requireAuth, (req, res) => {
     res.json({ gauntlets, mapPacks, lists });
 });
 
-router.get('/api/users', requireAuth, (req, res) => {
+router.get('/api/users', requireAuth, requireDashboardFeature('users'), (req, res) => {
     const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 64) : '';
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 10);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
@@ -272,7 +488,7 @@ router.get('/api/users', requireAuth, (req, res) => {
         LEFT JOIN profiles p ON p.accountID = a.accountID
         WHERE (? = '' OR a.userName LIKE ? ESCAPE '\\' OR COALESCE(p.userName, '') LIKE ? ESCAPE '\\' OR CAST(a.accountID AS TEXT) = ?)`)
         .get(query, like, like, query).total;
-    const users = db.prepare(`SELECT a.accountID, a.userName, a.isDisabled, a.commentBan, a.commentBanReason,
+    const users = db.prepare(`SELECT a.accountID, a.userName, a.isDisabled, a.leaderboardBan, a.commentBan, a.commentBanReason,
         a.permaCommentBan, a.creatorBanned,
         COALESCE(p.userName, '') AS profileName, COALESCE(p.modLevel, 0) AS modLevel,
         COALESCE(p.stars, 0) AS stars, COALESCE(p.demons, 0) AS demons,
@@ -286,7 +502,7 @@ router.get('/api/users', requireAuth, (req, res) => {
     res.json({ users, query, offset, limit, total });
 });
 
-router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
+router.put('/api/users/:accountId', requireAuth, requireDashboardFeature('users'), requireCsrf, (req, res) => {
     const accountId = Number(req.params.accountId);
     const modLevel = Number(req.body?.modLevel);
     const isDisabled = Number(req.body?.isDisabled);
@@ -294,6 +510,7 @@ router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
     const commentBanReason = typeof req.body?.commentBanReason === 'string' ? req.body.commentBanReason.trim().slice(0, 64) : '';
     const permaCommentBan = Number(req.body?.permaCommentBan);
     const creatorBanned = Number(req.body?.creatorBanned);
+    const leaderboardBan = Number(req.body?.leaderboardBan);
     const currentTime = Math.floor(Date.now() / 1000);
     if (!Number.isInteger(accountId) || accountId < 1) return res.status(400).json({ error: 'Invalid account' });
     if (!Number.isInteger(modLevel) || modLevel < 0 || modLevel > 3) return res.status(400).json({ error: 'Invalid moderator level' });
@@ -301,9 +518,21 @@ router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
     if (!Number.isInteger(commentBan) || commentBan < 0 || (commentBan !== 0 && (commentBan <= currentTime || commentBan > currentTime + 31536000))) return res.status(400).json({ error: 'Invalid comment ban expiry' });
     if (!Number.isInteger(permaCommentBan) || (permaCommentBan !== 0 && permaCommentBan !== 1)) return res.status(400).json({ error: 'Invalid permanent comment ban flag' });
     if (!Number.isInteger(creatorBanned) || (creatorBanned !== 0 && creatorBanned !== 1)) return res.status(400).json({ error: 'Invalid creator ban flag' });
+    if (!Number.isInteger(leaderboardBan) || (leaderboardBan !== 0 && leaderboardBan !== 1)) return res.status(400).json({ error: 'Invalid leaderboard ban flag' });
 
     const account = db.prepare('SELECT userName FROM accounts WHERE accountID = ?').get(accountId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
+    const targetProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(accountId);
+    if (!requesterProfile) return res.status(403).json({ error: 'Moderator profile required' });
+    if (accountId === req.dashboardSession.accountID && modLevel !== requesterProfile.modLevel) {
+        return res.status(403).json({ error: 'You cannot change your own moderator role' });
+    }
+    if (getModeratorRank(targetProfile?.modLevel || 0) > getModeratorRank(requesterProfile.modLevel) ||
+        getModeratorRank(modLevel) > getModeratorRank(requesterProfile.modLevel)) {
+        return res.status(403).json({ error: 'You cannot manage a higher-ranked mod or assign a higher moderator level' });
+    }
 
     const transaction = db.transaction(() => {
         const profile = db.prepare('SELECT accountID FROM profiles WHERE accountID = ?').get(accountId);
@@ -313,10 +542,10 @@ router.put('/api/users/:accountId', requireAuth, requireCsrf, (req, res) => {
             db.prepare('UPDATE profiles SET modLevel = ?, userName = ? WHERE accountID = ?').run(modLevel, account.userName, accountId);
         }
         const sanitizedReason = permaCommentBan === 1 || commentBan > 0 ? commentBanReason : '';
-        db.prepare('UPDATE accounts SET isDisabled = ?, commentBan = ?, commentBanReason = ?, permaCommentBan = ?, creatorBanned = ? WHERE accountID = ?').run(
-            isDisabled, commentBan, sanitizedReason, permaCommentBan, creatorBanned, accountId
+        db.prepare('UPDATE accounts SET isDisabled = ?, leaderboardBan = ?, commentBan = ?, commentBanReason = ?, permaCommentBan = ?, creatorBanned = ? WHERE accountID = ?').run(
+            isDisabled, leaderboardBan, commentBan, sanitizedReason, permaCommentBan, creatorBanned, accountId
         );
-        return { modLevel, isDisabled, commentBan, commentBanReason: sanitizedReason, permaCommentBan, creatorBanned };
+        return { modLevel, isDisabled, leaderboardBan, commentBan, commentBanReason: sanitizedReason, permaCommentBan, creatorBanned };
     });
 
     res.json(transaction());
@@ -511,7 +740,8 @@ router.post('/api/songs', requireAuth, requireCsrf, async (req, res) => {
     );
     const songID = Number(result.lastInsertRowid);
     const fileName = `${songID}${extension}`;
-    const link = `${String(process.env.SONG_BASE_URL || `${req.protocol}://${req.get('host')}/songs`).replace(/\/+$/, '')}/${fileName}`;
+    const songBaseUrl = config.songBaseUrl || `${utils.getPublicBaseUrl(req, config.publicUrl)}/songs`;
+    const link = `${songBaseUrl.replace(/\/+$/, '')}/${fileName}`;
     try {
         await fs.writeFile(path.join(songsDirectory, fileName), upload.file.content, { flag: 'wx' });
         db.prepare('UPDATE songs SET link = ? WHERE ID = ?').run(link, songID);
@@ -528,7 +758,7 @@ router.delete('/api/songs/:id', requireAuth, requireCsrf, async (req, res) => {
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid song' });
     const song = db.prepare('SELECT link FROM songs WHERE ID = ?').get(id);
     if (!song) return res.status(404).json({ error: 'Song not found' });
-    const fileName = path.basename(new URL(song.link, `${req.protocol}://${req.get('host')}`).pathname);
+    const fileName = path.basename(new URL(song.link, 'http://gdpsnode.invalid').pathname);
     const filePath = path.join(songsDirectory, fileName);
     let songFile = null;
     try {

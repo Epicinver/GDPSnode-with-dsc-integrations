@@ -31,9 +31,9 @@ module.exports = {
         const orderColumn = type === 'creators' ? 'creatorPoints' : statColumns[stat];
         const account = accountID ? db.prepare('SELECT * FROM accounts WHERE accountID = ?').get(accountID) : null;
 
-        if (requiresAccount && (!account || account.gjp2 !== gjp2 || account.isDisabled === 1)) return res.send('-1');
+        if (requiresAccount && (!account || account.gjp2 !== gjp2 || account.isDisabled === 1 || account.leaderboardBan === 1)) return res.send('-1');
 
-        let where = 'a.isDisabled = 0';
+        let where = 'a.isDisabled = 0 AND a.leaderboardBan = 0';
         const parameters = [];
 
         if (type === 'creators') {

@@ -1,7 +1,15 @@
 let csrf = '';
 let currentLevels = [];
 let dashboardRequestCount = 0;
+let currentModLevel = 0;
+let dashboardFeatures = new Set();
+let accountRolePermissions = {};
+let accountHasCustomRestrictions = false;
+let accountPermissionsChanged = false;
+const accountRecords = new Map();
 const picker = { kind: '', query: '', offset: 0, limit: 10, total: 0 };
+const moderatorRanks = { 0: 0, 3: 1, 1: 2, 2: 3 };
+const moderatorRank = modLevel => moderatorRanks[Number(modLevel)] ?? -1;
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[character]));
 const cocosColors = new Set('bcgljyopr adfs'.replace(/\s/g, '').split(''));
@@ -151,7 +159,7 @@ function suggestionText(suggestion) {
 function render(data) {
     $('#server-motd').innerHTML = renderCocosText(data.motd);
     const labels = [['accounts', 'Accounts'], ['levels', 'Levels'], ['moderators', 'Advisors'], ['elders', 'Mods'], ['pending', 'Pending']];
-    $('#stats').innerHTML = labels.map(([key, label]) => `<div class="stat"><span>${label}</span><strong>${data.stats[key].toLocaleString()}</strong></div>`).join('');
+    $('#stats').innerHTML = data.stats ? labels.map(([key, label]) => `<div class="stat"><span>${label}</span><strong>${data.stats[key].toLocaleString()}</strong></div>`).join('') : '';
 
     const grouped = [...data.pending.reduce((levels, suggestion) => {
     if (!levels.has(suggestion.levelID)) levels.set(suggestion.levelID, { ...suggestion, suggestions: [] });
@@ -210,26 +218,82 @@ function renderCollections(data) {
 }
 
 function renderAccountResults(users) {
-    $('#browse-results').innerHTML = users.length ? users.map(user => {
+        accountRecords.clear();
+        users.forEach(user => accountRecords.set(String(user.accountID), user));
+        $('#browse-results').innerHTML = users.length ? users.map(user => {
+                const role = ['Player', 'Advisor', 'Mod', 'Leaderboard mod'][user.modLevel] || 'Player';
+                const status = user.isDisabled ? 'Disabled' : user.leaderboardBan ? 'Leaderboard banned' : 'Active';
+                return `<article class="account-row account-result"><div class="account-main"><strong>${escapeHtml(user.userName || user.profileName || `Account #${user.accountID}`)}</strong><small>#${user.accountID} · ${role} · ${status}</small></div><button class="account-manage" type="button" data-account="${user.accountID}">Manage</button></article>`;
+        }).join('') : '<p class="empty">No matching accounts.</p>';
+}
+
+function renderAccountManager(user, access) {
         const expiresAt = Number(user.commentBan || 0);
         const activeBan = expiresAt > Math.floor(Date.now() / 1000);
-        return `
-        <form class="account-row" data-account="${user.accountID}">
-          <div class="account-main">
-            <strong>${escapeHtml(user.userName || user.profileName || `Account #${user.accountID}`)}</strong>
-            <small>#${user.accountID} · ${user.modLevel === 2 ? 'Mod' : user.modLevel === 1 ? 'Advisor' : user.modLevel === 3 ? 'Leaderboard' : 'Player'} · ${user.isDisabled ? 'Disabled' : 'Active'}</small>
-          </div>
-          <label>Mod level<select name="modLevel"><option value="0"${selected(user.modLevel, 0)}>Player</option><option value="1"${selected(user.modLevel, 1)}>Advisor</option><option value="2"${selected(user.modLevel, 2)}>Mod</option><option value="3"${selected(user.modLevel, 3)}>Leaderboard</option></select></label>
-          <label>Disabled<select name="isDisabled"><option value="0"${selected(user.isDisabled, 0)}>No</option><option value="1"${selected(user.isDisabled, 1)}>Yes</option></select></label>
-          <label>Comment ban<div class="expiry-stack"><select name="commentBanPreset"><option value="none"${Number(user.commentBan || 0) <= Math.floor(Date.now() / 1000) ? ' selected' : ''}>No temporary ban</option><option value="1d">1 day</option><option value="custom">Custom length</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">365 days</option><option value="date"${activeBan ? ' selected' : ''}>Specific date/time</option></select><div class="comment-ban-duration-fields" hidden><div class="mini-grid"><input name="commentBanDays" type="number" min="0" step="1" value="0" placeholder="days"><input name="commentBanHours" type="number" min="0" max="23" step="1" value="0" placeholder="hours"><input name="commentBanMinutes" type="number" min="0" max="59" step="1" value="0" placeholder="minutes"></div></div><div class="comment-ban-expiry-date" hidden><input name="commentBanExpiresAt" type="datetime-local" step="1" value="${activeBan ? localDateTimeValue(expiresAt) : ''}"></div></div></label>
-          <label>Reason<input name="commentBanReason" maxlength="64" value="${escapeHtml(user.commentBanReason || '')}" aria-label="Comment ban reason"></label>
-          <label>Perma Comment ban<select name="permaCommentBan"><option value="0"${selected(user.permaCommentBan || 0, 0)}>No</option><option value="1"${selected(user.permaCommentBan || 0, 1)}>Yes</option></select></label>
-          <label>Creator ban<select name="creatorBanned"><option value="0"${selected(user.creatorBanned || 0, 0)}>No</option><option value="1"${selected(user.creatorBanned || 0, 1)}>Yes</option></select></label>
-          <button type="submit">Save</button>
-        </form>
-    `;
-    }).join('') : '<p class="empty">No matching accounts.</p>';
-    $('#browse-results').querySelectorAll('.account-row').forEach(updateCommentBanExpiryControls);
+        const roles = ['Player', 'Advisor', 'Mod', 'Leaderboard mod'];
+        const roleOptions = roles.map((label, level) => moderatorRank(level) <= moderatorRank(currentModLevel)
+                ? `<option value="${level}"${selected(user.modLevel, level)}>${label}</option>`
+                : '').join('');
+        accountRolePermissions = access.rolePermissions || {};
+        accountHasCustomRestrictions = Boolean(access.customRestrictions);
+        accountPermissionsChanged = false;
+        const activePermissions = accountRolePermissions[user.modLevel] || access.defaults;
+        const permissionOptions = access.featureCatalog.map(feature => {
+            const included = activePermissions.includes(feature.key);
+                return `<label class="permission-check${included ? '' : ' unavailable'}"><input type="checkbox" name="feature" value="${escapeHtml(feature.key)}"${access.features.includes(feature.key) ? ' checked' : ''}${included ? '' : ' disabled'}><span>${escapeHtml(feature.label)}</span></label>`;
+        }).join('');
+
+        $('#account-title').textContent = user.userName || user.profileName || `Account #${user.accountID}`;
+        $('#account-detail-content').innerHTML = `
+            <form id="account-form" class="account-form" data-account="${user.accountID}">
+                <p class="account-id">Account #${user.accountID}</p>
+                <div class="moderation-grid">
+                    <label>Moderator role<select name="modLevel">${roleOptions}</select></label>
+                    <label>Disabled<select name="isDisabled"><option value="0"${selected(user.isDisabled, 0)}>No</option><option value="1"${selected(user.isDisabled, 1)}>Yes</option></select></label>
+                    <label>Leaderboard ban<select name="leaderboardBan"><option value="0"${selected(user.leaderboardBan || 0, 0)}>No</option><option value="1"${selected(user.leaderboardBan || 0, 1)}>Yes</option></select></label>
+                    <label>Comment ban<div class="expiry-stack"><select name="commentBanPreset"><option value="none"${Number(user.commentBan || 0) <= Math.floor(Date.now() / 1000) ? ' selected' : ''}>No temporary ban</option><option value="1d">1 day</option><option value="custom">Custom length</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">365 days</option><option value="date"${activeBan ? ' selected' : ''}>Specific date/time</option></select><div class="comment-ban-duration-fields" hidden><div class="mini-grid"><input name="commentBanDays" type="number" min="0" step="1" value="0" placeholder="days"><input name="commentBanHours" type="number" min="0" max="23" step="1" value="0" placeholder="hours"><input name="commentBanMinutes" type="number" min="0" max="59" step="1" value="0" placeholder="minutes"></div></div><div class="comment-ban-expiry-date" hidden><input name="commentBanExpiresAt" type="datetime-local" step="1" value="${activeBan ? localDateTimeValue(expiresAt) : ''}"></div></div></label>
+                    <label>Reason<input name="commentBanReason" maxlength="64" value="${escapeHtml(user.commentBanReason || '')}"></label>
+                    <label>Permanent comment ban<select name="permaCommentBan"><option value="0"${selected(user.permaCommentBan || 0, 0)}>No</option><option value="1"${selected(user.permaCommentBan || 0, 1)}>Yes</option></select></label>
+                    <label>Creator ban<select name="creatorBanned"><option value="0"${selected(user.creatorBanned || 0, 0)}>No</option><option value="1"${selected(user.creatorBanned || 0, 1)}>Yes</option></select></label>
+                </div>
+                <fieldset class="account-permissions"><legend>Dashboard permissions</legend><p class="muted">Select access within this role's configured limits.</p><div class="permission-checks">${permissionOptions}</div><button class="ghost small account-permissions-reset" type="button">Use role defaults</button></fieldset>
+                <div class="window-actions"><button type="submit">Save account</button></div>
+            </form>`;
+        updateCommentBanExpiryControls($('#account-form'));
+        $('#account-modal').hidden = false;
+}
+
+function updateAccountPermissionChoices(modLevel) {
+    const available = new Set(accountRolePermissions[modLevel] || []);
+    $('#account-form')?.querySelectorAll('.permission-check').forEach(label => {
+        const checkbox = label.querySelector('input');
+        const enabled = available.has(checkbox.value);
+        if (enabled && checkbox.disabled && !accountHasCustomRestrictions) checkbox.checked = true;
+        label.classList.toggle('unavailable', !enabled);
+        checkbox.disabled = !enabled;
+        if (!enabled) checkbox.checked = false;
+    });
+}
+
+async function openAccountManager(accountId) {
+    if (!dashboardFeatures.has('users')) throw new Error('Account management is not enabled for your role');
+        const user = accountRecords.get(String(accountId));
+        if (!user) throw new Error('Account is no longer in this result page');
+        const access = await request(`api/access/${accountId}`);
+        renderAccountManager(user, access);
+}
+
+function renderPermissionSchema(schema) {
+        const roleLabels = { 0: 'Player', 1: 'Advisor', 2: 'Mod', 3: 'Leaderboard mod' };
+        const headings = Object.keys(roleLabels).map(level => `<th scope="col">${roleLabels[level]}</th>`).join('');
+        const rows = schema.features.map(feature => `<tr><th scope="row">${escapeHtml(feature.label)}<small>${escapeHtml(feature.key)}</small></th>${Object.keys(roleLabels).map(level => `<td><label class="schema-cell"><input type="checkbox" data-role="${level}" data-feature="${escapeHtml(feature.key)}"${schema.roles[level].includes(feature.key) ? ' checked' : ''}><span class="sr-only">${roleLabels[level]}: ${escapeHtml(feature.label)}</span></label></td>`).join('')}</tr>`).join('');
+        $('#permission-schema-editor').innerHTML = `<div class="schema-table-wrap"><table class="schema-table"><thead><tr><th scope="col">Feature</th>${headings}</tr></thead><tbody>${rows}</tbody></table></div><p class="muted">Changes apply immediately to dashboard API access. Account-specific settings can further restrict these role defaults.</p>`;
+        $('#permission-modal').hidden = false;
+}
+
+async function openPermissionSchema() {
+    if (moderatorRank(currentModLevel) < moderatorRank(2)) throw new Error('Only mods can manage the permission schema');
+        renderPermissionSchema(await request('api/permissions/schema'));
 }
 
 function openPicker(kind) {
@@ -438,13 +502,20 @@ function syncColorControls(root = document) {
 
 async function load() {
     try {
+        const access = await request('api/access');
+        csrf = access.csrf;
+        currentModLevel = Number(access.modLevel || 0);
+        dashboardFeatures = new Set(access.features || []);
+        applyDashboardPermissions();
         const data = await request('api/bootstrap');
         csrf = data.csrf;
         render(data);
-        renderCollections(await request('api/collections'));
-        renderQuests((await request('api/quests')).quests || []);
-        renderSecretRewards((await request('api/secret-rewards')).rewards || []);
-        renderSchedule(await request('api/server-schedule'));
+        if (dashboardFeatures.has('collections')) renderCollections(await request('api/collections'));
+        if (dashboardFeatures.has('management')) {
+            renderQuests((await request('api/quests')).quests || []);
+            renderSecretRewards((await request('api/secret-rewards')).rewards || []);
+        }
+        if (dashboardFeatures.has('schedule')) renderSchedule(await request('api/server-schedule'));
         $('#login-view').hidden = true;
         $('#app-view').hidden = false;
     } catch (error) {
@@ -612,7 +683,7 @@ $('#level-detail').addEventListener('pointerup', event => {
     event.currentTarget.classList.remove('is-dragging');
 });
 
-document.querySelectorAll('.open-browser').forEach(button => button.addEventListener('click', () => openPicker(button.dataset.browser)));
+document.querySelectorAll('.open-browser, .management-launcher[data-browser]').forEach(button => button.addEventListener('click', () => openPicker(button.dataset.browser)));
 
 $('#close-browser').addEventListener('click', () => {
     $('#browse-modal').hidden = true;
@@ -653,6 +724,12 @@ $('#browse-next').addEventListener('click', () => {
 });
 
 $('#browse-results').addEventListener('click', async event => {
+    const accountButton = event.target.closest('.account-manage');
+    if (accountButton) {
+        try { await openAccountManager(accountButton.dataset.account); }
+        catch (error) { $('#app-error').textContent = error.message; }
+        return;
+    }
     const result = event.target.closest('.level-result'); if (!result) return;
     try {
         renderLevelDetail(await request(`api/levels/${result.dataset.level}`));
@@ -662,6 +739,51 @@ $('#browse-results').addEventListener('click', async event => {
 
 document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && !$('#browse-modal').hidden) $('#close-browser').click();
+    if (event.key === 'Escape') document.querySelectorAll('.management-modal:not([hidden])').forEach(modal => { modal.hidden = true; });
+});
+
+document.querySelectorAll('.close-management-window').forEach(button => button.addEventListener('click', () => {
+    button.closest('.management-modal').hidden = true;
+}));
+
+document.querySelectorAll('.management-modal').forEach(modal => modal.addEventListener('click', event => {
+    if (event.target === modal) modal.hidden = true;
+}));
+
+$('#open-permission-schema').addEventListener('click', async () => {
+    try { await openPermissionSchema(); }
+    catch (error) { $('#app-error').textContent = error.message; }
+});
+
+$('#save-permission-schema').addEventListener('click', async () => {
+    const roles = {};
+    for (const role of [0, 1, 2, 3]) {
+        roles[role] = [...$('#permission-schema-editor').querySelectorAll(`input[data-role="${role}"]:checked`)].map(input => input.dataset.feature);
+    }
+    try {
+        await request('api/permissions/schema', { method: 'PUT', body: JSON.stringify({ roles }) });
+        $('#permission-modal').hidden = true;
+        await load();
+        showToast('Permission schema saved', 'success');
+    } catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
+});
+
+$('#account-detail-content').addEventListener('change', event => {
+    if (event.target.name === 'modLevel') updateAccountPermissionChoices(Number(event.target.value));
+    if (event.target.name === 'feature') accountPermissionsChanged = true;
+    if (event.target.name === 'commentBanPreset') updateCommentBanExpiryControls(event.target.closest('.account-form'));
+});
+
+$('#account-detail-content').addEventListener('click', async event => {
+    if (!event.target.classList.contains('account-permissions-reset')) return;
+    const accountId = $('#account-form').dataset.account;
+    try {
+        await request(`api/access/${accountId}`, { method: 'PUT', body: JSON.stringify({ inheritDefaults: true }) });
+        accountHasCustomRestrictions = false;
+        accountPermissionsChanged = false;
+        renderAccountManager(accountRecords.get(String(accountId)), await request(`api/access/${accountId}`));
+        showToast('Role defaults restored', 'success');
+    } catch (error) { $('#app-error').textContent = error.message; }
 });
 
 $('#level-detail').addEventListener('click', async event => {
@@ -723,6 +845,28 @@ $('#clear-event').addEventListener('click', async () => {
     catch (error) { $('#app-error').textContent = error.message; }
 });
 
+function applyDashboardPermissions() {
+    document.querySelectorAll('#app-view [data-feature]').forEach(element => {
+        element.hidden = !dashboardFeatures.has(element.dataset.feature);
+    });
+    document.querySelectorAll('#app-view [data-min-mod-level]').forEach(element => {
+        element.hidden = moderatorRank(currentModLevel) < moderatorRank(Number(element.dataset.minModLevel));
+    });
+
+    $('#server-schedule-form').closest('.panel').hidden = !dashboardFeatures.has('schedule');
+    $('#quest-form').closest('.panel').hidden = !dashboardFeatures.has('management');
+    $('#secret-reward-form').closest('.panel').hidden = !dashboardFeatures.has('management');
+    $('#song-form').closest('.panel').hidden = !dashboardFeatures.has('management');
+    const canManage = moderatorRank(currentModLevel) >= moderatorRank(2) || ['users', 'schedule', 'management'].some(feature => dashboardFeatures.has(feature));
+    document.querySelector('[data-tab="levels"]').hidden = !dashboardFeatures.has('levels');
+    document.querySelector('[data-tab="collections"]').hidden = !dashboardFeatures.has('collections');
+    document.querySelector('[data-tab="management"]').hidden = !canManage;
+    const availableTabs = [...document.querySelectorAll('.tab')].filter(tab => !tab.hidden);
+    const activeTab = document.querySelector('.tab.active');
+    const selectedTab = availableTabs.find(tab => tab.dataset.tab === activeTab?.dataset.tab) || availableTabs[0];
+    if (selectedTab) showTab(selectedTab.dataset.tab);
+}
+
 function showTab(name) {
     document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item.dataset.tab === name));
     $('#levels-tab').hidden = name !== 'levels';
@@ -735,19 +879,7 @@ showTab('levels');
 
 document.addEventListener('submit', async event => {
     const form = event.target;
-    if (form.id === 'map-pack-form' || form.classList.contains('map-pack-row')) {
-        event.preventDefault();
-        try { await request(form.dataset.id ? `api/map-packs/${form.dataset.id}` : 'api/map-packs', { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(formBody(form)) }); await load(); }
-        catch (error) { $('#app-error').textContent = error.message; }
-    } else if (form.classList.contains('level-list-row')) {
-        event.preventDefault();
-        try { await request(`api/lists/${form.dataset.id}`, { method: 'PUT', body: JSON.stringify(formBody(form)) }); await load(); }
-        catch (error) { $('#app-error').textContent = error.message; }
-    } else if (form.classList.contains('gauntlet-form')) {
-        event.preventDefault();
-        try { await request(`api/gauntlets/${form.dataset.id}`, { method: 'PUT', body: JSON.stringify(formBody(form)) }); await load(); }
-        catch (error) { $('#app-error').textContent = error.message; }
-    } else if (form.classList.contains('account-row')) {
+    if (form.id === 'account-form') {
         event.preventDefault();
         try {
             const accountId = form.dataset.account;
@@ -764,12 +896,31 @@ document.addEventListener('submit', async event => {
                 }),
                 commentBanReason: String(formData.get('commentBanReason') || '').trim(),
                 permaCommentBan: Number(formData.get('permaCommentBan')) || 0,
-                creatorBanned: Number(formData.get('creatorBanned')) || 0
+                creatorBanned: Number(formData.get('creatorBanned')) || 0,
+                leaderboardBan: Number(formData.get('leaderboardBan')) || 0
             };
+            const features = [...form.querySelectorAll('input[name="feature"]:checked')].map(input => input.value);
             await request(`api/users/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) });
+            if (accountHasCustomRestrictions || accountPermissionsChanged) {
+                await request(`api/access/${accountId}`, { method: 'PUT', body: JSON.stringify({ features }) });
+            }
+            $('#account-modal').hidden = true;
             await load();
             if (picker.kind === 'accounts' && !$('#browse-modal').hidden) await loadPickerPage();
-        } catch (error) { $('#app-error').textContent = error.message; }
+            showToast('Account changes saved', 'success');
+        } catch (error) { $('#app-error').textContent = error.message; showToast(error.message, 'error'); }
+    } else if (form.id === 'map-pack-form' || form.classList.contains('map-pack-row')) {
+        event.preventDefault();
+        try { await request(form.dataset.id ? `api/map-packs/${form.dataset.id}` : 'api/map-packs', { method: form.dataset.id ? 'PUT' : 'POST', body: JSON.stringify(formBody(form)) }); await load(); }
+        catch (error) { $('#app-error').textContent = error.message; }
+    } else if (form.classList.contains('level-list-row')) {
+        event.preventDefault();
+        try { await request(`api/lists/${form.dataset.id}`, { method: 'PUT', body: JSON.stringify(formBody(form)) }); await load(); }
+        catch (error) { $('#app-error').textContent = error.message; }
+    } else if (form.classList.contains('gauntlet-form')) {
+        event.preventDefault();
+        try { await request(`api/gauntlets/${form.dataset.id}`, { method: 'PUT', body: JSON.stringify(formBody(form)) }); await load(); }
+        catch (error) { $('#app-error').textContent = error.message; }
     } else if (form.id === 'song-form') {
         event.preventDefault();
         try {

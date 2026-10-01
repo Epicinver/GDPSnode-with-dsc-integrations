@@ -49,6 +49,7 @@ module.exports = {
         if (((levelID < 0 && !list) || (levelID > 0 && !level)) || !profile || !account) return res.send('-1');
         if (userName !== account.userName) return res.send('-1');
         if (chkgen(userName, comment, levelID, percent) !== chk) return res.send('-1');
+        if (account.leaderboardBan === 1) percent = 0
         if (account.gjp2 !== gjp2) return res.send('-1');
         if (account.isDisabled === 1) return res.send('-1');
         if (account.permaCommentBan === 1) return res.send('-10');

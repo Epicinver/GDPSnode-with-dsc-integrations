@@ -21,6 +21,8 @@ module.exports = {
         if (!targetProfile || !targetAccount) return res.send('-1');
         if (targetAccount.isDisabled === 1) return res.send('-1');
 
+        const leaderboardBanned = targetAccount.leaderboardBan === 1;
+
         // check block status
         if (accountID) {
             const isBlocked = db.prepare('SELECT ID FROM blocks WHERE (person1 = ? AND person2 = ?) OR (person2 = ? AND person1 = ?)').get(targetAccountID, accountID, targetAccountID, accountID);
@@ -31,8 +33,8 @@ module.exports = {
         }
         const accSettings = db.prepare('SELECT youtubeurl, twitter, twitch, discord, instagram, tiktok, custom, frS, mS, cS FROM profiles WHERE accountID = ?').get(targetAccountID);
 
-        const higherStarCount = db.prepare('SELECT COUNT(*) as count FROM profiles WHERE stars > ? AND accountID IN (SELECT accountID FROM accounts WHERE isDisabled = 0)').get(targetProfile.stars);
-        let rank = targetAccount.isDisabled === 1 ? 0 : (higherStarCount.count + 1);
+        const higherStarCount = db.prepare('SELECT COUNT(*) as count FROM profiles WHERE stars > ? AND accountID IN (SELECT accountID FROM accounts WHERE isDisabled = 0 AND leaderboardBan = 0)').get(targetProfile.stars);
+        let rank = leaderboardBanned ? 0 : (higherStarCount.count + 1);
 
         let appendix = '';
         let friendstate = 0;

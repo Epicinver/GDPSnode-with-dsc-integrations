@@ -63,6 +63,9 @@ module.exports = {
 
         let peopleString = '';
         for (const personID of people) {
+            const accountRecord = db.prepare('SELECT isDisabled FROM accounts WHERE accountID = ?').get(personID);
+            if (!accountRecord || accountRecord.isDisabled === 1) continue;
+
             const profile = db.prepare('SELECT userName, accountID, icon, color1, color2, iconType, special, creatorPoints FROM profiles WHERE accountID = ?').get(personID);
             
             if (profile) {

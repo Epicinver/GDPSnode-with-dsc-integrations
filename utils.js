@@ -126,4 +126,25 @@ function creatorPointsForRating(stars, feature) {
     return Math.max(0, Math.min(4, feature)) + 1;
 }
 
-module.exports = { generateGJP2, isURLBase64, remove, normalizeUsername, charclean, numbercolon, number, getRelative, xorCipher, genSolo3, genSolo4, randomString, creatorPointsForRating };
+function getPublicBaseUrl(req, configuredUrl = '') {
+    if (configuredUrl) return configuredUrl.replace(/\/+$/, '');
+
+    const host = req.get('host');
+    if (!host) return '';
+
+    const trustProxy = req.app?.get('trust proxy');
+    const trustsProxy = trustProxy === true || (typeof trustProxy === 'number' && trustProxy > 0) ||
+        (typeof trustProxy === 'string' && trustProxy !== '' && trustProxy !== '0' && trustProxy !== 'false');
+    const forwardedProto = trustsProxy
+        ? String(req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase()
+        : '';
+    const protocol = ['http', 'https'].includes(forwardedProto) ? forwardedProto : 'http';
+
+    try {
+        return new URL(`${protocol}://${host}`).origin;
+    } catch {
+        return '';
+    }
+}
+
+module.exports = { generateGJP2, isURLBase64, remove, normalizeUsername, charclean, numbercolon, number, getRelative, xorCipher, genSolo3, genSolo4, randomString, creatorPointsForRating, getPublicBaseUrl };

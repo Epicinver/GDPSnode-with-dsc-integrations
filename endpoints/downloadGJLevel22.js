@@ -66,6 +66,9 @@ module.exports = {
             if (!level) return res.send('-1');
         }
 
+        const ownerAccount = db.prepare('SELECT isDisabled FROM accounts WHERE accountID = ?').get(level.accountID);
+        if (!ownerAccount || ownerAccount.isDisabled === 1) return res.send('-1');
+
         if (level.unlisted === 1) {
             if (!accountID) {
                 return res.send('-1');

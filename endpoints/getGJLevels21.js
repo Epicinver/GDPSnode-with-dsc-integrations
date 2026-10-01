@@ -234,6 +234,7 @@ module.exports = {
             params.push(...lenValues);
         }
         const searchedByID = (type === 0 && isNumericStr) || type === 10 || type === 25;
+        conditions.push('accountID IN (SELECT accountID FROM accounts WHERE isDisabled = 0)');
         if (!searchedByID) {
             conditions.push('unlisted = 0');
         }

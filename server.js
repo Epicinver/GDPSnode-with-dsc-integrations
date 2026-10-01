@@ -1,14 +1,14 @@
 // security check block
-const config = require('./config');
-const port = Number(config.port);
-
 try {
     process.loadEnvFile();
 } catch (e) {
     console.warn('\x1b[1;31m✗ No .env file found! Falling back to defaults...\x1b[0m');
 }
-const dashboardPath = (process.env.DASHBOARD_PATH || '/dashboard').replace(/\/+$/, '').replace(/^([^/])/, '/$1') || '/dashboard';
-const isDefaultPath = process.env.DASHBOARD_PATH === '/dashboard';
+
+const config = require('./config');
+const port = Number(config.port);
+const dashboardPath = config.dashboard.path;
+const isDefaultPath = (process.env.DASHBOARD_PATH || '/dashboard') === '/dashboard';
 const isDefaultPass = process.env.DASHBOARD_PASSWORD === 'replace-with-a-long-random-password';
 
 if (isDefaultPath || isDefaultPass) {
@@ -27,10 +27,12 @@ const { execSync } = require('child_process');
 const fs = require('fs/promises');
 const path = require('path');
 const dashboard = require('./dashboard');
+const db = require('./database');
+const { loadPlugins, hooks } = require('./hooks');
 const { closeDB } = require('./database');
 const soundlib = require("./soundlib")
 
-const VERSION = '4.4R';
+const VERSION = '4.5R';
 const VERSION_URL = 'https://raw.githubusercontent.com/giantpreston/gdpsnode/refs/heads/main/version.txt';
 
 async function checkForUpdates() {
@@ -69,8 +71,11 @@ soundlib.ensureMusicLib(0);
 
 
 const app = express();
+hooks.setApp(app);
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY);
+app.set('trust proxy', process.env.TRUST_PROXY || config.dashboard.trustProxyHops);
+app.locals.hooks = hooks;
+app.locals.config = config;
 
 // spoof robtop's version of apache lmaoooooo
 app.use((req, res, next) => {
@@ -96,6 +101,22 @@ app.use(express.urlencoded({
     limit: bodyLimit,
     parameterLimit: 100000
 }));
+app.use((req, res, next) => {
+    if (req.method.toLowerCase() !== 'post') return next();
+    const body = req.body || {};
+    const rawAccountID = body.accountID;
+    if (rawAccountID === undefined || rawAccountID === null || rawAccountID === '') return next();
+
+    const accountID = Number.parseInt(String(rawAccountID), 10);
+    if (!Number.isInteger(accountID) || accountID <= 0) return next();
+
+    const account = db.prepare('SELECT isDisabled FROM accounts WHERE accountID = ?').get(accountID);
+    if (account && account.isDisabled === 1) {
+        return res.status(200).type('text/plain').send('-1');
+    }
+
+    return next();
+});
 app.use(limiter);
 app.get(dashboardPath, (req, res, next) => {
     if (req.path === dashboardPath) return res.redirect(308, `${dashboardPath}/`);
@@ -131,7 +152,11 @@ async function registerEndpoints() {
     }
 }
 
-registerEndpoints().then(() => {
+loadPlugins(path.join(__dirname, config.plugins.directory), app).then(() => {
+    hooks.trigger('server:before_start', { app, config, path: __dirname });
+    return registerEndpoints();
+}).then(() => {
+    hooks.trigger('server:ready', { app, config, port, dashboardPath });
     app.use((err, req, res, next) => {
         console.error(`\x1b[1;31m✗ Unhandled API error on ${req.method} ${req.originalUrl}\x1b[0m`, err);
         if (!res.headersSent) {
@@ -146,6 +171,7 @@ registerEndpoints().then(() => {
     });
 
     const server = app.listen(port, () => {
+        hooks.trigger('server:listening', { app, config, port });
         console.log(`\x1b[1;32m✓ GDPS Running Successfully! Port: ${port}\x1b[0m`);
         if (!isElevated() && port === 80 || !isElevated() && port === 443) { console.log('\x1b[1;33m⚠ Running on a privileged port without elevated permissions!'); console.log('\x1b[1;33m  This server is most likely NOT listening on the set port, to do so, elevate this process.'); }
 
