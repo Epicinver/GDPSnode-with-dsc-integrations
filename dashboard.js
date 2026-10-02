@@ -8,7 +8,8 @@ const config = require('./config');
 const utils = require('./utils');
 const { cleanupLevelRelatedData, cleanupListRelatedData, cleanupSongReferences } = require('./contentCleanup');
 
-const DASHBOARD_FEATURES = ['overview', 'levels', 'collections', 'management', 'users', 'schedule', 'leaderboard', 'plugins'];
+const ACCOUNT_ACTION_FEATURES = ['accountRole', 'accountDisable', 'leaderboardBan', 'commentBan', 'creatorBan', 'accountAccess'];
+const DASHBOARD_FEATURES = ['overview', 'levels', 'collections', 'management', 'users', 'schedule', ...ACCOUNT_ACTION_FEATURES];
 const DASHBOARD_FEATURE_LABELS = {
     overview: 'Overview',
     levels: 'Level moderation',
@@ -16,14 +17,18 @@ const DASHBOARD_FEATURE_LABELS = {
     management: 'Server management',
     users: 'Accounts and moderation',
     schedule: 'Daily, weekly, and event schedule',
-    leaderboard: 'Leaderboard moderation',
-    plugins: 'Plugin tools'
+    accountRole: 'Change moderator roles',
+    accountDisable: 'Disable accounts',
+    leaderboardBan: 'Leaderboard bans',
+    commentBan: 'Comment bans',
+    creatorBan: 'Creator bans',
+    accountAccess: 'Edit account dashboard access'
 };
 const DEFAULT_DASHBOARD_PERMISSIONS = {
     0: [],
-    1: ['overview', 'leaderboard'],
-    2: ['overview', 'levels', 'collections', 'management', 'users', 'schedule', 'leaderboard', 'plugins'],
-    3: ['overview', 'leaderboard']
+    1: ['overview', 'leaderboardBan'],
+    2: ['overview', 'levels', 'collections', 'management', 'users', 'schedule', ...ACCOUNT_ACTION_FEATURES],
+    3: ['overview', 'leaderboardBan']
 };
 const MODERATOR_RANK = { 0: 0, 3: 1, 1: 2, 2: 3 };
 
@@ -72,11 +77,21 @@ function getDashboardPermissionSchema() {
     try {
         const stored = JSON.parse(row.schema);
         const roles = {};
+        const legacySchema = stored.version !== 2 && stored.version !== 3;
         for (const modLevel of [0, 1, 2, 3]) {
             const permissions = stored.roles?.[modLevel];
             roles[modLevel] = Array.isArray(permissions)
                 ? [...new Set(permissions.filter(feature => DASHBOARD_FEATURES.includes(feature)))].sort()
                 : [...DEFAULT_DASHBOARD_PERMISSIONS[modLevel]];
+            if (legacySchema && roles[modLevel].includes('users')) {
+                roles[modLevel] = [...new Set([...roles[modLevel], ...ACCOUNT_ACTION_FEATURES])].sort();
+            }
+            const previousRoleThreeDefaults = Array.isArray(permissions) && permissions.length === 2 &&
+                ((permissions.includes('leaderboard') && permissions.includes('overview')) ||
+                    (permissions.includes('users') && permissions.includes('leaderboardBan')));
+            if (modLevel === 3 && previousRoleThreeDefaults && (legacySchema || stored.version === 2)) {
+                roles[modLevel] = [...DEFAULT_DASHBOARD_PERMISSIONS[3]];
+            }
         }
         return { roles };
     } catch {
@@ -92,14 +107,19 @@ function getDashboardAccess(accountId) {
     const profile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(accountId);
     const modLevel = Number(profile?.modLevel || 0);
     const defaults = new Set(getDefaultDashboardFeatures(modLevel));
-    const row = db.prepare('SELECT allowedFeatures, restrictedBy, updatedAt FROM dashboard_access WHERE accountID = ?').get(accountId);
+    const row = db.prepare('SELECT allowedFeatures, restrictedBy, updatedAt, permissionsVersion FROM dashboard_access WHERE accountID = ?').get(accountId);
 
     if (!row) {
         return { modLevel, allowedFeatures: [...defaults].sort() };
     }
 
     const override = row.allowedFeatures;
-    const allowed = override === '*' ? [...defaults] : normalizeFeatureList(override).filter(feature => defaults.has(feature));
+    let allowed = override === '*' ? [...defaults] : normalizeFeatureList(override).filter(feature => defaults.has(feature));
+    if (override !== '*' && Number(row.permissionsVersion || 1) < 2 && allowed.includes('users')) {
+        for (const feature of ACCOUNT_ACTION_FEATURES) {
+            if (defaults.has(feature)) allowed.push(feature);
+        }
+    }
     return { modLevel, allowedFeatures: [...new Set(allowed)].sort(), restrictedBy: row.restrictedBy || 0, updatedAt: row.updatedAt || 0 };
 }
 
@@ -120,6 +140,18 @@ function requireDashboardFeature(feature) {
         req.dashboardAccess = getDashboardAccess(session.accountID);
         next();
     };
+}
+
+function hasAccountManagementAccess(accountId) {
+    const features = new Set(getDashboardAccess(accountId).allowedFeatures);
+    return features.has('users') || ACCOUNT_ACTION_FEATURES.some(feature => features.has(feature));
+}
+
+function requireAccountManagementAccess(req, res, next) {
+    if (!req.dashboardSession || !hasAccountManagementAccess(req.dashboardSession.accountID)) {
+        return res.status(403).json({ error: 'Account management is not enabled for your role' });
+    }
+    next();
 }
 
 function issueSession(res, accountId, modLevel) {
@@ -310,7 +342,7 @@ router.use('/api/lists', requireAuth, requireDashboardFeature('collections'));
 router.use('/api/levels', requireAuth, requireDashboardFeature('levels'));
 router.use('/api/rate', requireAuth, requireDashboardFeature('levels'));
 router.use('/api/reject', requireAuth, requireDashboardFeature('levels'));
-router.use('/api/users', requireAuth, requireDashboardFeature('users'));
+router.use('/api/users', requireAuth, requireAccountManagementAccess);
 router.use('/api/server-schedule', requireAuth, requireDashboardFeature('schedule'));
 router.use('/api/secret-rewards', requireAuth, requireDashboardFeature('management'));
 router.use('/api/songs', requireAuth, requireDashboardFeature('management'));
@@ -361,7 +393,7 @@ router.get('/api/access', requireAuth, (req, res) => {
     });
 });
 
-router.get('/api/access/:accountId', requireAuth, requireDashboardFeature('users'), (req, res) => {
+router.get('/api/access/:accountId', requireAuth, requireDashboardFeature('accountAccess'), (req, res) => {
     const targetAccountId = Number(req.params.accountId);
     const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
     const targetAccount = db.prepare('SELECT accountID FROM accounts WHERE accountID = ?').get(targetAccountId);
@@ -383,7 +415,7 @@ router.get('/api/access/:accountId', requireAuth, requireDashboardFeature('users
     });
 });
 
-router.put('/api/access/:accountId', requireAuth, requireDashboardFeature('users'), requireCsrf, (req, res) => {
+router.put('/api/access/:accountId', requireAuth, requireDashboardFeature('accountAccess'), requireCsrf, (req, res) => {
     const targetAccountId = Number(req.params.accountId);
     const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
     const targetProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(targetAccountId);
@@ -394,7 +426,6 @@ router.put('/api/access/:accountId', requireAuth, requireDashboardFeature('users
     const cleaned = [...new Set(rawFeatures.map(String).map(item => item.trim()).filter(item => DASHBOARD_FEATURES.includes(item)))];
     const defaultFeatures = new Set(getDefaultDashboardFeatures(targetProfile.modLevel));
     const filtered = cleaned.filter(feature => defaultFeatures.has(feature));
-
     if (getModeratorRank(targetProfile.modLevel) > getModeratorRank(requesterProfile.modLevel)) {
         return res.status(403).json({ error: 'You cannot manage access for a higher-ranked mod' });
     }
@@ -406,7 +437,7 @@ router.put('/api/access/:accountId', requireAuth, requireDashboardFeature('users
 
     const nextValue = filtered.join(',');
     const now = Math.floor(Date.now() / 1000);
-    db.prepare('INSERT INTO dashboard_access (accountID, allowedFeatures, updatedAt, restrictedBy) VALUES (?, ?, ?, ?) ON CONFLICT(accountID) DO UPDATE SET allowedFeatures = excluded.allowedFeatures, updatedAt = excluded.updatedAt, restrictedBy = excluded.restrictedBy').run(targetAccountId, nextValue, now, req.dashboardSession.accountID);
+    db.prepare('INSERT INTO dashboard_access (accountID, allowedFeatures, updatedAt, restrictedBy, permissionsVersion) VALUES (?, ?, ?, ?, 2) ON CONFLICT(accountID) DO UPDATE SET allowedFeatures = excluded.allowedFeatures, updatedAt = excluded.updatedAt, restrictedBy = excluded.restrictedBy, permissionsVersion = 2').run(targetAccountId, nextValue, now, req.dashboardSession.accountID);
     res.json({ accountID: targetAccountId, features: filtered });
 });
 
@@ -443,7 +474,7 @@ router.put('/api/permissions/schema', requireAuth, requireCsrf, (req, res) => {
     const now = Math.floor(Date.now() / 1000);
     db.prepare(`INSERT INTO dashboard_permission_schema (id, schema, updatedAt, updatedBy) VALUES (1, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET schema = excluded.schema, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy`)
-        .run(JSON.stringify({ roles }), now, req.dashboardSession.accountID);
+        .run(JSON.stringify({ version: 3, roles }), now, req.dashboardSession.accountID);
     res.json({ roles, updatedAt: now });
 });
 
@@ -479,7 +510,7 @@ router.get('/api/collections', requireAuth, (req, res) => {
     res.json({ gauntlets, mapPacks, lists });
 });
 
-router.get('/api/users', requireAuth, requireDashboardFeature('users'), (req, res) => {
+router.get('/api/users', (req, res) => {
     const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 64) : '';
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 10);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
@@ -502,50 +533,77 @@ router.get('/api/users', requireAuth, requireDashboardFeature('users'), (req, re
     res.json({ users, query, offset, limit, total });
 });
 
-router.put('/api/users/:accountId', requireAuth, requireDashboardFeature('users'), requireCsrf, (req, res) => {
+router.put('/api/users/:accountId', requireCsrf, (req, res) => {
     const accountId = Number(req.params.accountId);
-    const modLevel = Number(req.body?.modLevel);
-    const isDisabled = Number(req.body?.isDisabled);
-    const commentBan = Number(req.body?.commentBan);
-    const commentBanReason = typeof req.body?.commentBanReason === 'string' ? req.body.commentBanReason.trim().slice(0, 64) : '';
-    const permaCommentBan = Number(req.body?.permaCommentBan);
-    const creatorBanned = Number(req.body?.creatorBanned);
-    const leaderboardBan = Number(req.body?.leaderboardBan);
+    const body = req.body || {};
+    const requestedActions = [
+        ['modLevel', 'accountRole'],
+        ['isDisabled', 'accountDisable'],
+        ['leaderboardBan', 'leaderboardBan'],
+        ['commentBan', 'commentBan'],
+        ['commentBanReason', 'commentBan'],
+        ['permaCommentBan', 'commentBan'],
+        ['creatorBanned', 'creatorBan']
+    ].filter(([field]) => Object.hasOwn(body, field));
+    for (const [, feature] of requestedActions) {
+        if (!hasDashboardFeature(req.dashboardSession.accountID, feature)) {
+            return res.status(403).json({ error: `Access denied for ${feature}` });
+        }
+    }
+    const modLevel = Number(body.modLevel);
+    const isDisabled = Number(body.isDisabled);
+    const commentBan = Number(body.commentBan);
+    const commentBanReason = typeof body.commentBanReason === 'string' ? body.commentBanReason.trim().slice(0, 64) : '';
+    const permaCommentBan = Number(body.permaCommentBan);
+    const creatorBanned = Number(body.creatorBanned);
+    const leaderboardBan = Number(body.leaderboardBan);
     const currentTime = Math.floor(Date.now() / 1000);
     if (!Number.isInteger(accountId) || accountId < 1) return res.status(400).json({ error: 'Invalid account' });
-    if (!Number.isInteger(modLevel) || modLevel < 0 || modLevel > 3) return res.status(400).json({ error: 'Invalid moderator level' });
-    if (!Number.isInteger(isDisabled) || (isDisabled !== 0 && isDisabled !== 1)) return res.status(400).json({ error: 'Invalid disabled flag' });
-    if (!Number.isInteger(commentBan) || commentBan < 0 || (commentBan !== 0 && (commentBan <= currentTime || commentBan > currentTime + 31536000))) return res.status(400).json({ error: 'Invalid comment ban expiry' });
-    if (!Number.isInteger(permaCommentBan) || (permaCommentBan !== 0 && permaCommentBan !== 1)) return res.status(400).json({ error: 'Invalid permanent comment ban flag' });
-    if (!Number.isInteger(creatorBanned) || (creatorBanned !== 0 && creatorBanned !== 1)) return res.status(400).json({ error: 'Invalid creator ban flag' });
-    if (!Number.isInteger(leaderboardBan) || (leaderboardBan !== 0 && leaderboardBan !== 1)) return res.status(400).json({ error: 'Invalid leaderboard ban flag' });
 
-    const account = db.prepare('SELECT userName FROM accounts WHERE accountID = ?').get(accountId);
+    const account = db.prepare('SELECT userName, isDisabled, leaderboardBan, commentBan, commentBanReason, permaCommentBan, creatorBanned FROM accounts WHERE accountID = ?').get(accountId);
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const requesterProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(req.dashboardSession.accountID);
     const targetProfile = db.prepare('SELECT modLevel FROM profiles WHERE accountID = ?').get(accountId);
+    const targetModLevel = Number(targetProfile?.modLevel || 0);
+    const nextModLevel = Object.hasOwn(body, 'modLevel') ? modLevel : targetModLevel;
+    const nextDisabled = Object.hasOwn(body, 'isDisabled') ? isDisabled : Number(account.isDisabled);
+    const nextLeaderboardBan = Object.hasOwn(body, 'leaderboardBan') ? leaderboardBan : Number(account.leaderboardBan);
+    const nextCommentBan = Object.hasOwn(body, 'commentBan') ? commentBan : Number(account.commentBan);
+    const nextPermaCommentBan = Object.hasOwn(body, 'permaCommentBan') ? permaCommentBan : Number(account.permaCommentBan);
+    const nextCreatorBanned = Object.hasOwn(body, 'creatorBanned') ? creatorBanned : Number(account.creatorBanned);
+    if (Object.hasOwn(body, 'modLevel') && (!Number.isInteger(modLevel) || modLevel < 0 || modLevel > 3)) return res.status(400).json({ error: 'Invalid moderator level' });
+    if (Object.hasOwn(body, 'isDisabled') && (!Number.isInteger(isDisabled) || (isDisabled !== 0 && isDisabled !== 1))) return res.status(400).json({ error: 'Invalid disabled flag' });
+    if (Object.hasOwn(body, 'commentBan') && (!Number.isInteger(commentBan) || commentBan < 0 || (commentBan !== 0 && (commentBan <= currentTime || commentBan > currentTime + 31536000)))) return res.status(400).json({ error: 'Invalid comment ban expiry' });
+    if (Object.hasOwn(body, 'permaCommentBan') && (!Number.isInteger(permaCommentBan) || (permaCommentBan !== 0 && permaCommentBan !== 1))) return res.status(400).json({ error: 'Invalid permanent comment ban flag' });
+    if (Object.hasOwn(body, 'creatorBanned') && (!Number.isInteger(creatorBanned) || (creatorBanned !== 0 && creatorBanned !== 1))) return res.status(400).json({ error: 'Invalid creator ban flag' });
+    if (Object.hasOwn(body, 'leaderboardBan') && (!Number.isInteger(leaderboardBan) || (leaderboardBan !== 0 && leaderboardBan !== 1))) return res.status(400).json({ error: 'Invalid leaderboard ban flag' });
+    if (requestedActions.length === 0) return res.status(400).json({ error: 'No account changes provided' });
     if (!requesterProfile) return res.status(403).json({ error: 'Moderator profile required' });
-    if (accountId === req.dashboardSession.accountID && modLevel !== requesterProfile.modLevel) {
+    if (accountId === req.dashboardSession.accountID && nextModLevel !== requesterProfile.modLevel) {
         return res.status(403).json({ error: 'You cannot change your own moderator role' });
     }
-    if (getModeratorRank(targetProfile?.modLevel || 0) > getModeratorRank(requesterProfile.modLevel) ||
-        getModeratorRank(modLevel) > getModeratorRank(requesterProfile.modLevel)) {
+    if (getModeratorRank(targetModLevel) > getModeratorRank(requesterProfile.modLevel) ||
+        getModeratorRank(nextModLevel) > getModeratorRank(requesterProfile.modLevel)) {
         return res.status(403).json({ error: 'You cannot manage a higher-ranked mod or assign a higher moderator level' });
     }
 
     const transaction = db.transaction(() => {
-        const profile = db.prepare('SELECT accountID FROM profiles WHERE accountID = ?').get(accountId);
-        if (!profile) {
-            db.prepare('INSERT INTO profiles (accountID, userName, modLevel) VALUES (?, ?, ?)').run(accountId, account.userName, modLevel);
-        } else {
-            db.prepare('UPDATE profiles SET modLevel = ?, userName = ? WHERE accountID = ?').run(modLevel, account.userName, accountId);
+        if (Object.hasOwn(body, 'modLevel')) {
+            const profile = db.prepare('SELECT accountID FROM profiles WHERE accountID = ?').get(accountId);
+            if (!profile) {
+                db.prepare('INSERT INTO profiles (accountID, userName, modLevel) VALUES (?, ?, ?)').run(accountId, account.userName, modLevel);
+            } else {
+                db.prepare('UPDATE profiles SET modLevel = ?, userName = ? WHERE accountID = ?').run(modLevel, account.userName, accountId);
+            }
         }
-        const sanitizedReason = permaCommentBan === 1 || commentBan > 0 ? commentBanReason : '';
+        const sanitizedReason = Object.hasOwn(body, 'commentBanReason')
+            ? (nextPermaCommentBan === 1 || nextCommentBan > 0 ? commentBanReason : '')
+            : account.commentBanReason;
         db.prepare('UPDATE accounts SET isDisabled = ?, leaderboardBan = ?, commentBan = ?, commentBanReason = ?, permaCommentBan = ?, creatorBanned = ? WHERE accountID = ?').run(
-            isDisabled, leaderboardBan, commentBan, sanitizedReason, permaCommentBan, creatorBanned, accountId
+            nextDisabled, nextLeaderboardBan, nextCommentBan, sanitizedReason, nextPermaCommentBan, nextCreatorBanned, accountId
         );
-        return { modLevel, isDisabled, leaderboardBan, commentBan, commentBanReason: sanitizedReason, permaCommentBan, creatorBanned };
+        return { modLevel: nextModLevel, isDisabled: nextDisabled, leaderboardBan: nextLeaderboardBan, commentBan: nextCommentBan, commentBanReason: sanitizedReason, permaCommentBan: nextPermaCommentBan, creatorBanned: nextCreatorBanned };
     });
 
     res.json(transaction());

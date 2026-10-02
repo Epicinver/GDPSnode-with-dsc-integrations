@@ -27,7 +27,8 @@ db.exec(`
         accountID INTEGER NOT NULL PRIMARY KEY,
         allowedFeatures TEXT NOT NULL DEFAULT '*',
         updatedAt INTEGER NOT NULL DEFAULT 0,
-        restrictedBy INTEGER NOT NULL DEFAULT 0
+        restrictedBy INTEGER NOT NULL DEFAULT 0,
+        permissionsVersion INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS dashboard_permission_schema (
@@ -391,7 +392,8 @@ const addedColumns = [
     { table: 'levels', column: 'wt2', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'friendships', column: 'friendsSince', definition: 'INTEGER NOT NULL DEFAULT 0' },
-    { table: 'accounts', column: 'leaderboardBan', definition: 'INTEGER NOT NULL DEFAULT 0' }
+    { table: 'accounts', column: 'leaderboardBan', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'dashboard_access', column: 'permissionsVersion', definition: 'INTEGER NOT NULL DEFAULT 1' }
 ];
 
 db.transaction(() => {

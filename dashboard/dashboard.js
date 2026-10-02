@@ -6,6 +6,7 @@ let dashboardFeatures = new Set();
 let accountRolePermissions = {};
 let accountHasCustomRestrictions = false;
 let accountPermissionsChanged = false;
+const ACCOUNT_ACTION_FEATURES = ['accountRole', 'accountDisable', 'leaderboardBan', 'commentBan', 'creatorBan', 'accountAccess'];
 const accountRecords = new Map();
 const picker = { kind: '', query: '', offset: 0, limit: 10, total: 0 };
 const moderatorRanks = { 0: 0, 3: 1, 1: 2, 2: 3 };
@@ -248,17 +249,20 @@ function renderAccountManager(user, access) {
             <form id="account-form" class="account-form" data-account="${user.accountID}">
                 <p class="account-id">Account #${user.accountID}</p>
                 <div class="moderation-grid">
-                    <label>Moderator role<select name="modLevel">${roleOptions}</select></label>
-                    <label>Disabled<select name="isDisabled"><option value="0"${selected(user.isDisabled, 0)}>No</option><option value="1"${selected(user.isDisabled, 1)}>Yes</option></select></label>
-                    <label>Leaderboard ban<select name="leaderboardBan"><option value="0"${selected(user.leaderboardBan || 0, 0)}>No</option><option value="1"${selected(user.leaderboardBan || 0, 1)}>Yes</option></select></label>
-                    <label>Comment ban<div class="expiry-stack"><select name="commentBanPreset"><option value="none"${Number(user.commentBan || 0) <= Math.floor(Date.now() / 1000) ? ' selected' : ''}>No temporary ban</option><option value="1d">1 day</option><option value="custom">Custom length</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">365 days</option><option value="date"${activeBan ? ' selected' : ''}>Specific date/time</option></select><div class="comment-ban-duration-fields" hidden><div class="mini-grid"><input name="commentBanDays" type="number" min="0" step="1" value="0" placeholder="days"><input name="commentBanHours" type="number" min="0" max="23" step="1" value="0" placeholder="hours"><input name="commentBanMinutes" type="number" min="0" max="59" step="1" value="0" placeholder="minutes"></div></div><div class="comment-ban-expiry-date" hidden><input name="commentBanExpiresAt" type="datetime-local" step="1" value="${activeBan ? localDateTimeValue(expiresAt) : ''}"></div></div></label>
-                    <label>Reason<input name="commentBanReason" maxlength="64" value="${escapeHtml(user.commentBanReason || '')}"></label>
-                    <label>Permanent comment ban<select name="permaCommentBan"><option value="0"${selected(user.permaCommentBan || 0, 0)}>No</option><option value="1"${selected(user.permaCommentBan || 0, 1)}>Yes</option></select></label>
-                    <label>Creator ban<select name="creatorBanned"><option value="0"${selected(user.creatorBanned || 0, 0)}>No</option><option value="1"${selected(user.creatorBanned || 0, 1)}>Yes</option></select></label>
+                    <label data-account-feature="accountRole">Moderator role<select name="modLevel">${roleOptions}</select></label>
+                    <label data-account-feature="accountDisable">Disabled<select name="isDisabled"><option value="0"${selected(user.isDisabled, 0)}>No</option><option value="1"${selected(user.isDisabled, 1)}>Yes</option></select></label>
+                    <label data-account-feature="leaderboardBan">Leaderboard ban<select name="leaderboardBan"><option value="0"${selected(user.leaderboardBan || 0, 0)}>No</option><option value="1"${selected(user.leaderboardBan || 0, 1)}>Yes</option></select></label>
+                    <label data-account-feature="commentBan">Comment ban<div class="expiry-stack"><select name="commentBanPreset"><option value="none"${Number(user.commentBan || 0) <= Math.floor(Date.now() / 1000) ? ' selected' : ''}>No temporary ban</option><option value="1d">1 day</option><option value="custom">Custom length</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">365 days</option><option value="date"${activeBan ? ' selected' : ''}>Specific date/time</option></select><div class="comment-ban-duration-fields" hidden><div class="mini-grid"><input name="commentBanDays" type="number" min="0" step="1" value="0" placeholder="days"><input name="commentBanHours" type="number" min="0" max="23" step="1" value="0" placeholder="hours"><input name="commentBanMinutes" type="number" min="0" max="59" step="1" value="0" placeholder="minutes"></div></div><div class="comment-ban-expiry-date" hidden><input name="commentBanExpiresAt" type="datetime-local" step="1" value="${activeBan ? localDateTimeValue(expiresAt) : ''}"></div></div></label>
+                    <label data-account-feature="commentBan">Reason<input name="commentBanReason" maxlength="64" value="${escapeHtml(user.commentBanReason || '')}"></label>
+                    <label data-account-feature="commentBan">Permanent comment ban<select name="permaCommentBan"><option value="0"${selected(user.permaCommentBan || 0, 0)}>No</option><option value="1"${selected(user.permaCommentBan || 0, 1)}>Yes</option></select></label>
+                    <label data-account-feature="creatorBan">Creator ban<select name="creatorBanned"><option value="0"${selected(user.creatorBanned || 0, 0)}>No</option><option value="1"${selected(user.creatorBanned || 0, 1)}>Yes</option></select></label>
                 </div>
-                <fieldset class="account-permissions"><legend>Dashboard permissions</legend><p class="muted">Select access within this role's configured limits.</p><div class="permission-checks">${permissionOptions}</div><button class="ghost small account-permissions-reset" type="button">Use role defaults</button></fieldset>
-                <div class="window-actions"><button type="submit">Save account</button></div>
+                <fieldset class="account-permissions" data-account-feature="accountAccess"><legend>Dashboard permissions</legend><p class="muted">Select access within this role's configured limits.</p><div class="permission-checks">${permissionOptions}</div><button class="ghost small account-permissions-reset" type="button">Use role defaults</button></fieldset>
+                <div class="window-actions"><button type="submit"${ACCOUNT_ACTION_FEATURES.some(feature => dashboardFeatures.has(feature)) ? '' : ' disabled'}>Save account</button></div>
             </form>`;
+        $('#account-form').querySelectorAll('[data-account-feature]').forEach(element => {
+            element.hidden = !dashboardFeatures.has(element.dataset.accountFeature);
+        });
         updateCommentBanExpiryControls($('#account-form'));
         $('#account-modal').hidden = false;
 }
@@ -276,10 +280,12 @@ function updateAccountPermissionChoices(modLevel) {
 }
 
 async function openAccountManager(accountId) {
-    if (!dashboardFeatures.has('users')) throw new Error('Account management is not enabled for your role');
+    if (!hasAccountManagementAccess()) throw new Error('Account management is not enabled for your role');
         const user = accountRecords.get(String(accountId));
         if (!user) throw new Error('Account is no longer in this result page');
-        const access = await request(`api/access/${accountId}`);
+        const access = dashboardFeatures.has('accountAccess')
+            ? await request(`api/access/${accountId}`)
+            : { rolePermissions: {}, defaults: [], features: [], featureCatalog: [], customRestrictions: null };
         renderAccountManager(user, access);
 }
 
@@ -287,7 +293,7 @@ function renderPermissionSchema(schema) {
         const roleLabels = { 0: 'Player', 1: 'Advisor', 2: 'Mod', 3: 'Leaderboard mod' };
         const headings = Object.keys(roleLabels).map(level => `<th scope="col">${roleLabels[level]}</th>`).join('');
         const rows = schema.features.map(feature => `<tr><th scope="row">${escapeHtml(feature.label)}<small>${escapeHtml(feature.key)}</small></th>${Object.keys(roleLabels).map(level => `<td><label class="schema-cell"><input type="checkbox" data-role="${level}" data-feature="${escapeHtml(feature.key)}"${schema.roles[level].includes(feature.key) ? ' checked' : ''}><span class="sr-only">${roleLabels[level]}: ${escapeHtml(feature.label)}</span></label></td>`).join('')}</tr>`).join('');
-        $('#permission-schema-editor').innerHTML = `<div class="schema-table-wrap"><table class="schema-table"><thead><tr><th scope="col">Feature</th>${headings}</tr></thead><tbody>${rows}</tbody></table></div><p class="muted">Changes apply immediately to dashboard API access. Account-specific settings can further restrict these role defaults.</p>`;
+        $('#permission-schema-editor').innerHTML = `<div class="schema-table-wrap"><table class="schema-table"><thead><tr><th scope="col">Feature</th>${headings}</tr></thead><tbody>${rows}</tbody></table></div><p class="muted">Each account action grants only its matching control. Account-specific settings can further restrict these role defaults.</p>`;
         $('#permission-modal').hidden = false;
 }
 
@@ -849,6 +855,7 @@ function applyDashboardPermissions() {
     document.querySelectorAll('#app-view [data-feature]').forEach(element => {
         element.hidden = !dashboardFeatures.has(element.dataset.feature);
     });
+    document.querySelector('[data-browser="accounts"]').hidden = !hasAccountManagementAccess();
     document.querySelectorAll('#app-view [data-min-mod-level]').forEach(element => {
         element.hidden = moderatorRank(currentModLevel) < moderatorRank(Number(element.dataset.minModLevel));
     });
@@ -857,7 +864,8 @@ function applyDashboardPermissions() {
     $('#quest-form').closest('.panel').hidden = !dashboardFeatures.has('management');
     $('#secret-reward-form').closest('.panel').hidden = !dashboardFeatures.has('management');
     $('#song-form').closest('.panel').hidden = !dashboardFeatures.has('management');
-    const canManage = moderatorRank(currentModLevel) >= moderatorRank(2) || ['users', 'schedule', 'management'].some(feature => dashboardFeatures.has(feature));
+    const canManage = ['schedule', 'management'].some(feature => dashboardFeatures.has(feature)) ||
+        hasAccountManagementAccess() || moderatorRank(currentModLevel) >= moderatorRank(2);
     document.querySelector('[data-tab="levels"]').hidden = !dashboardFeatures.has('levels');
     document.querySelector('[data-tab="collections"]').hidden = !dashboardFeatures.has('collections');
     document.querySelector('[data-tab="management"]').hidden = !canManage;
@@ -865,6 +873,10 @@ function applyDashboardPermissions() {
     const activeTab = document.querySelector('.tab.active');
     const selectedTab = availableTabs.find(tab => tab.dataset.tab === activeTab?.dataset.tab) || availableTabs[0];
     if (selectedTab) showTab(selectedTab.dataset.tab);
+}
+
+function hasAccountManagementAccess() {
+    return dashboardFeatures.has('users') || ACCOUNT_ACTION_FEATURES.some(feature => dashboardFeatures.has(feature));
 }
 
 function showTab(name) {
@@ -884,9 +896,11 @@ document.addEventListener('submit', async event => {
         try {
             const accountId = form.dataset.account;
             const formData = new FormData(form);
-            const payload = {
-                modLevel: Number(formData.get('modLevel')),
-                isDisabled: Number(formData.get('isDisabled')),
+            const payload = {};
+            if (dashboardFeatures.has('accountRole')) payload.modLevel = Number(formData.get('modLevel'));
+            if (dashboardFeatures.has('accountDisable')) payload.isDisabled = Number(formData.get('isDisabled'));
+            if (dashboardFeatures.has('leaderboardBan')) payload.leaderboardBan = Number(formData.get('leaderboardBan')) || 0;
+            if (dashboardFeatures.has('commentBan')) Object.assign(payload, {
                 commentBan: getExpiryTimestampFromForm(form, {
                     preset: '[name="commentBanPreset"]',
                     days: '[name="commentBanDays"]',
@@ -895,13 +909,12 @@ document.addEventListener('submit', async event => {
                     date: '[name="commentBanExpiresAt"]'
                 }),
                 commentBanReason: String(formData.get('commentBanReason') || '').trim(),
-                permaCommentBan: Number(formData.get('permaCommentBan')) || 0,
-                creatorBanned: Number(formData.get('creatorBanned')) || 0,
-                leaderboardBan: Number(formData.get('leaderboardBan')) || 0
-            };
+                permaCommentBan: Number(formData.get('permaCommentBan')) || 0
+            });
+            if (dashboardFeatures.has('creatorBan')) payload.creatorBanned = Number(formData.get('creatorBanned')) || 0;
             const features = [...form.querySelectorAll('input[name="feature"]:checked')].map(input => input.value);
-            await request(`api/users/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) });
-            if (accountHasCustomRestrictions || accountPermissionsChanged) {
+            if (Object.keys(payload).length) await request(`api/users/${accountId}`, { method: 'PUT', body: JSON.stringify(payload) });
+            if (dashboardFeatures.has('accountAccess') && (accountHasCustomRestrictions || accountPermissionsChanged)) {
                 await request(`api/access/${accountId}`, { method: 'PUT', body: JSON.stringify({ features }) });
             }
             $('#account-modal').hidden = true;
