@@ -55,6 +55,10 @@ module.exports = {
                 params.push(stars);
                 params.push(1);
 
+                setTimeout(() => {
+                    infoWebhookEmbed(`A level has been rated!\n Level ID: ${levelID}\n Stars: ${stars}`, hook);
+                }, 1450);
+
                 if (stars === 0) {
                     updates.push('starAuto = 0');
                     updates.push('starDemon = 0');
@@ -132,7 +136,6 @@ module.exports = {
             }
 
             /* lets go i found the right endpoint (me from rategjstars211.js ) */
-            infoWebhookEmbed(`A level has been rated!\n Level ID: ${levelID}\n Stars: ${stars}`, hook);
 
             return res.send('-1');
         } catch (err) {
