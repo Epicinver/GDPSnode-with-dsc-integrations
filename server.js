@@ -42,11 +42,11 @@ async function checkForUpdates() {
         const latestVersion = (await response.text()).trim();
         if (latestVersion && latestVersion !== VERSION) {
             console.warn(`\x1b[1;31m⚠ This server is outdated (v${VERSION}). Latest version: v${latestVersion}. Run 'git pull' to update!\x1b[0m`);
-            webhooks.warnWebhookEmbed("The GDPS is outdated. Please update the GDPS: https://github.com/GiantPreston/GDPSnode")
+            warnWebhookEmbed("The GDPS is outdated. Please update the GDPS: https://github.com/GiantPreston/GDPSnode")
         }
     } catch (err) {
         console.warn(`\x1b[1;33m⚠ Could not check for updates: ${err.message}\x1b[0m`);
-        webhooks.warnWebhookEmbed("Failed to check for updates. The GDPS may be outdated. Please manually check for updates: https://github.com/GiantPreston/GDPSnode")
+        warnWebhookEmbed("Failed to check for updates. The GDPS may be outdated. Please manually check for updates: https://github.com/GiantPreston/GDPSnode")
     
     }
 }
@@ -173,6 +173,7 @@ registerEndpoints().then(() => {
         console.log(`\x1b[1;33m⚠ Received ${signal}. Cleaning up...\x1b[0m`);
 
         server.close(() => {
+            infoWebhookEmbed("Server is shutting down..", hook);
             console.log('\x1b[1;32m✓ HTTP server closed.\x1b[0m');
             errorWebhookEmbed("Server is shutting down..", hook);
             closeDB();

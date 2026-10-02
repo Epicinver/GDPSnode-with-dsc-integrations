@@ -11,9 +11,10 @@ function infoWebhookEmbed(description, webhook){
             .setDescription(description)
             .setColor("#2596be");
 
-        webhook.send(embed)
+        hook.send(embed)
     } catch (error) {
         console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`, error);
+        console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`);
     }
 
     // there we go now we copy
@@ -27,10 +28,11 @@ function errorWebhookEmbed(description, webhook){
         .setColor("#2596be");
 
     try {
-        webhook.send(embed)
+        hook.send(embed)
     }
     catch (error) {
         console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`, error);
+        console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`);
     }
     // there we go now we copy
 }
@@ -43,10 +45,11 @@ function warnWebhookEmbed(description, webhook){
         .setColor("#2596be");
 
     try {
-        webhook.send(embed)
+        hook.send(embed)
     }
     catch (error) {
         console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`, error);
+        console.error(`\x1b[1;31m✗ There was an error sending messages to the Discord webhook. If you have not set a webhook, you can safely ignore this message. Otherwise, change your webhook URL in the config file.\x1b[0m`);
     }
     // there we go now we copy
 }
