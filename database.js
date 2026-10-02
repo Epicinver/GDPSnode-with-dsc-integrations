@@ -1,5 +1,7 @@
 const Database = require('better-sqlite3');
-const db = new Database('gd_server.db');
+const db = new Database('gd_server.db')
+
+// i hate hate hate hate hate, hate hate hate hate hate hate hate HATE sqlite.
 
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');

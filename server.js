@@ -1,7 +1,7 @@
 // security check block
 const config = require('./config');
 const port = Number(config.port);
-const { infoWebhookEmbed, errorWebhookEmbed, warnWebhookEmbed } = require('./webhook.js');
+const { infoWebhookEmbed, errorWebhookEmbed, warnWebhookEmbed, hook } = require('./webhook.js');
 
 try {
     process.loadEnvFile();
@@ -151,6 +151,7 @@ registerEndpoints().then(() => {
 
     const server = app.listen(port, () => {
         console.log(`\x1b[1;32m✓ GDPS Running Successfully! Port: ${port}\x1b[0m`);
+        infoWebhookEmbed('Server is running!', hook);
         if (!isElevated() && port === 80 || !isElevated() && port === 443) { console.log('\x1b[1;33m⚠ Running on a privileged port without elevated permissions!'); console.log('\x1b[1;33m  This server is most likely NOT listening on the set port, to do so, elevate this process.'); }
 
         if (process.stdin.isTTY) {
@@ -173,13 +174,14 @@ registerEndpoints().then(() => {
 
         server.close(() => {
             console.log('\x1b[1;32m✓ HTTP server closed.\x1b[0m');
-
+            errorWebhookEmbed("Server is shutting down..", hook);
             closeDB();
             process.exit(0);
         });
 
         setTimeout(() => {
             console.error('\x1b[1;31m✗ Shutdown timed out, forcing exit.\x1b[0m');
+            errorWebhookEmbed(`Force closing server due to timeout`, hook);
             closeDB();
             process.exit(1);
         }, 5000);
