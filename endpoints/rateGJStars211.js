@@ -76,9 +76,10 @@ module.exports = {
             );
         })();
 
-        setTimeout(() => {
-            infoWebhookEmbed(`New level rated!\n Level ID: ${levelID}\n Stars: ${stars}`, hook);
-        }, 1000);
+        //setTimeout(() => {
+        //    infoWebhookEmbed(`New level rated!\n Level ID: ${levelID}\n Stars: ${stars}`, hook);
+        //}, 1000);
+        /*turns out my dumbass didnt know this is the USER rate endpoint and not the modrate endpoint :D:D:D:D:D:D:D:D:D:D:D time to find the right endpoint  */
 
         return res.send('1');
     }
