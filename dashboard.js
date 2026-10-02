@@ -7,7 +7,6 @@ const db = require('./database');
 const config = require('./config');
 const utils = require('./utils');
 const { cleanupLevelRelatedData, cleanupListRelatedData, cleanupSongReferences } = require('./contentCleanup');
-
 const router = express.Router();
 const sessions = new Map();
 const sessionTtl = 8 * 60 * 60 * 1000;

@@ -8,7 +8,9 @@ module.exports = {
     lang: 'js',
     // this (lang item) isn't part of the GDPS Switcher JSON payload, but i'll include it to differentiate GDPSnode from regular PHP. You can feel free to remove "lang" from the getInfo.js file in the endpoints folder to mask your server, or change this to whatever you feel like.
     // dsc integration
-    webhook: 'https://discord.com/api/v9/webhooks/this_prob_isnt_the_right_api_endpoint_for_webhooks/doesntmatter_replacewithurwebhook'
+    webhook: 'https://discord.com/api/v9/webhooks/this_prob_isnt_the_right_api_endpoint_for_webhooks/doesntmatter_replacewithurwebhook',
     //             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     //                                      replace with your discord webhook
+    // if you leave the placeholder webhook the server will run as normal, but youll get notices in the console about the
+    // webhook. webhooks are completely optional :)
 };

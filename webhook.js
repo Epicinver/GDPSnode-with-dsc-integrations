@@ -54,7 +54,6 @@ function warnWebhookEmbed(description, webhook){
 module.exports = {
     warnWebhookEmbed,
     infoWebhookEmbed,
-    errorWebhookEmbed
+    errorWebhookEmbed,
+    hook
 }
-
-//
