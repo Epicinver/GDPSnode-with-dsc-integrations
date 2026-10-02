@@ -1,6 +1,7 @@
 const { accountSecret } = require('../middleware/secrets');
 const db = require('../database');
 const utils = require('../utils');
+const { infoWebhookEmbed, errorWebhookEmbed, warnWebhookEmbed, hook } = require('../webhook.js');
 
 module.exports = {
     method: 'post',
@@ -10,7 +11,8 @@ module.exports = {
         const username = utils.remove(req.body?.userName || '')
         const password = utils.remove(req.body?.password || '')
         const normalizedUsername = utils.normalizeUsername(username);
-        
+        infoWebhookEmbed(`New account registered!\n Username: ${username}`, hook);
+
         // sanity checks
         if (!username || !password) return res.send('-1');
         if (password.length < 6) return res.send('-8');

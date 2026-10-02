@@ -17,6 +17,8 @@ module.exports = {
         const accountID = parseInt(utils.number(req.body?.accountID), 10);
         const gjp2 = utils.remove(req.body?.gjp2);
 
+        infoWebhookEmbed(`New level rated!\n Level ID: ${levelID}\n Stars: ${stars}`, hook);
+
         // sanity checks
         if (!levelID || !stars || !accountID || !gjp2) return res.send('-1');
         if (gjp2.length !== 40) return res.send('-1');

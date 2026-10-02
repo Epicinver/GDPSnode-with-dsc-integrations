@@ -169,22 +169,24 @@ registerEndpoints().then(() => {
     const handleShutdown = (signal) => {
         if (isShuttingDown) return;
         isShuttingDown = true;
+        infoWebhookEmbed("Server is shutting down..", hook);
 
         console.log(`\x1b[1;33m⚠ Received ${signal}. Cleaning up...\x1b[0m`);
 
         server.close(() => {
-            infoWebhookEmbed("Server is shutting down..", hook);
             console.log('\x1b[1;32m✓ HTTP server closed.\x1b[0m');
-            errorWebhookEmbed("Server is shutting down..", hook);
             closeDB();
             process.exit(0);
         });
 
         setTimeout(() => {
-            console.error('\x1b[1;31m✗ Shutdown timed out, forcing exit.\x1b[0m');
             errorWebhookEmbed(`Force closing server due to timeout`, hook);
-            closeDB();
-            process.exit(1);
+            // delay for a bit so webhook can send
+            setTimeout(() => {
+                console.error('\x1b[1;31m✗ Shutdown timed out, forcing exit.\x1b[0m');
+                closeDB();
+                process.exit(1);
+            }, 450);
         }, 5000);
     };
 
