@@ -17,11 +17,27 @@ db.exec(`
         userName TEXT NOT NULL,
         gjp2 TEXT NOT NULL,
         isDisabled INTEGER NOT NULL,
+        leaderboardBan INTEGER NOT NULL DEFAULT 0,
         commentBan INTEGER NOT NULL DEFAULT 0,
         commentBanReason TEXT DEFAULT '',
         permaCommentBan INTEGER NOT NULL DEFAULT 0,
         creatorBanned INTEGER NOT NULL DEFAULT 0,
         saveData TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS dashboard_access (
+        accountID INTEGER NOT NULL PRIMARY KEY,
+        allowedFeatures TEXT NOT NULL DEFAULT '*',
+        updatedAt INTEGER NOT NULL DEFAULT 0,
+        restrictedBy INTEGER NOT NULL DEFAULT 0,
+        permissionsVersion INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS dashboard_permission_schema (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        schema TEXT NOT NULL,
+        updatedAt INTEGER NOT NULL DEFAULT 0,
+        updatedBy INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS profiles (
@@ -310,6 +326,7 @@ db.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_accounts_userName ON accounts(userName);
     CREATE INDEX IF NOT EXISTS idx_accounts_gjp2 ON accounts(gjp2);
+    CREATE INDEX IF NOT EXISTS idx_dashboard_access_accountID ON dashboard_access(accountID);
 
     CREATE INDEX IF NOT EXISTS idx_profiles_userName ON profiles(userName);
     CREATE INDEX IF NOT EXISTS idx_profiles_accountID ON profiles(accountID);
@@ -376,7 +393,9 @@ const addedColumns = [
     { table: 'levels', column: 'wt', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'wt2', definition: 'INTEGER NOT NULL DEFAULT 0' },
     { table: 'levels', column: 'ts', definition: 'INTEGER NOT NULL DEFAULT 0' },
-    { table: 'friendships', column: 'friendsSince', definition: 'INTEGER NOT NULL DEFAULT 0' }
+    { table: 'friendships', column: 'friendsSince', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'accounts', column: 'leaderboardBan', definition: 'INTEGER NOT NULL DEFAULT 0' },
+    { table: 'dashboard_access', column: 'permissionsVersion', definition: 'INTEGER NOT NULL DEFAULT 1' }
 ];
 
 db.transaction(() => {
@@ -401,6 +420,8 @@ db.transaction(() => {
         }
     }
 })();
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_accounts_leaderboardBan ON accounts(leaderboardBan)');
 
 db.pragma('optimize');
 

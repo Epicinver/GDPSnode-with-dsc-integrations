@@ -3,11 +3,24 @@
 [![Watch the trailer](https://img.shields.io/badge/Watch_the_trailer-YouTube-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=2F5ZYpTTSGM)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-A fully rewritten version of the Geometry Dash backend in Node.js, with account storage, levels, custom songs, rewards, and an admin dashboard.
+GDPSnode is a Geometry Dash private server backend written in Node.js. It includes account handling, level and score APIs, social features, custom songs, rewards, dashboard moderation tools, and a plugin system so the server can be extended without editing the core codebase.
+
+## Documentation
+
+- [First steps and quick setup](docs/SETUP.md)
+- [GDPS Switcher setup](docs/GDPS_SWITCHER.md)
+- [Hooks and plugin development](docs/PLUGIN_DEVELOPMENT.md)
+- [Contributing to the project](docs/CONTRIBUTING.md)
 
 ## Quick start
 
-Requirements: Node.js 22+ and npm.
+Requirements:
+
+- Node.js 22+
+- npm
+- A Linux, macOS, or Windows machine capable of running a local Node.js service
+
+Run the server:
 
 ```sh
 npm install
@@ -15,70 +28,97 @@ cp .env.example .env
 npm start
 ```
 
-The server runs on port `10000` by default. Change the `port` value at the top of `config.js` to pick another port.
+Then open the dashboard in a browser:
 
-## Dashboard
+```text
+http://localhost:10000/dashboard/
+```
 
-Open [http://localhost:10000/dashboard/](http://localhost:10000/dashboard/) after starting the server.
+The default port is 10000. You can override it in the environment via `.env` or in the config object.
 
-Configure these values in `.env`:
+## How GDPSnode is structured
+
+- `server.js` starts the Express app and boots the backend.
+- `endpoints/` contains Geometry Dash-compatible request handlers.
+- `dashboard/` contains the admin dashboard front-end and logic.
+- `database.js` manages the SQLite schema and database operations.
+- `hooks.js` provides the plugin and hook system.
+- `plugins/` is where custom extension modules are auto-loaded.
+- `songs/` stores custom music files.
+- `levels/` stores metadata and local content data.
+
+## Core features
+
+- Geometry Dash account creation, login, and profile management
+- Level upload/download endpoints and metadata handling
+- Social endpoints for friends and messages
+- Scores and leaderboards
+- Rewards, quests, and chest logic
+- Admin dashboard for moderation and management
+- Plugin system for custom game logic and APIs
+- SQLite database with automatic initialization
+
+## Default dashboard login
+
+The dashboard supports normal in-game moderator credentials by validating username + password against the stored account `gjp2` data. This means you can log in with a regular server account instead of keeping a separate dashboard-only password.
+
+Legacy environment values are still supported, but the account-based login is the recommended path.
+
+## Environment configuration
+
+The main environment template is `.env.example`. It contains the server and dashboard settings used during startup.
+
+Common examples:
 
 ```env
 DASHBOARD_PATH=/dashboard
-DASHBOARD_USER=moderator
-DASHBOARD_PASSWORD=use-a-long-random-password
-DASHBOARD_ACCOUNT_ID=123
 DASHBOARD_SECURE_COOKIES=0
 TRUST_PROXY_HOPS=0
+PORT=10000
+ENABLE_PLUGINS=1
+PLUGINS_DIR=plugins
 ```
 
-The account must already exist and have `modLevel=2` (moderator). Change the default dashboard path and password before exposing the server to the internet. Set `DASHBOARD_SECURE_COOKIES=1` when using HTTPS.
-
-## Project Features:
-
-- Geometry Dash-compatible account, level, list, score, comment, message, social, rating, reward, and moderation endpoints
-- Custom song hosting at `/songs/<filename>`
-- GDPS Switcher support at `/switcher/getInfo.php`
-- SQLite database created automatically as `gd_server.db`
-- Dashboard tools for users, levels, ratings, songs, collections, rewards, quests, and server scheduling
-
-API routes are loaded automatically from `endpoints/`. All game requests use `POST` form data, matching the Geometry Dash client protocol.
-
-The server starts at `/` by default. You don't need to append `/database` to your links, simply use the hostname, the port (if necessary) and the endpoint.
-
-## Configuration
-
-See `.env.example` for all available settings, including daily chest wait times and reward ranges.
-
-The application allows 100 requests per minute per client. Dashboard login is limited to 10 attempts per 15 minutes.
-
-## Development
+## Running in development
 
 ```sh
 npm test
 ```
 
-To measure SQLite on your hardware with a temporary database:
+Optional local benchmarking:
 
 ```sh
 npm run benchmark:sqlite -- --rows=1000000 --writers=4 --rounds=5000
 ```
 
-The benchmark reports seed speed, mixed indexed read/write throughput, and
-95th-percentile operation latency. Increase `rows` until it matches your
-expected population, then increase `writers` and `rounds` to model traffic.
-Move to a server database when measured write latency or throughput no longer meets your requirements!
-
-To add an endpoint, create a module in `endpoints/` that exports `method`, `path`, and `handler`. It will be registered automatically when the server restarts.
-
 ## Note
-This project's versioning system is close to RobTop's. Versions are incremented usually +0.1 for each patch or major version.
+GDPSnode has its own versioning system so you can know if you're behind on the latest builds, features or bug patches.
+
+Its versioning system is close to RobTop's, versions are incremented usually +0.1 for each patch or major version.
 For example, if you see a jump from 1.9R to 2.0R, this doesn't mean it's a major version, it could simply be a minor patch, or even just a version bump.
 
-Keep that in mind when updating your server, only update if you deem it necessary, and always check commit names first, versions don't tell the whole story!
+Be mindful of that, and only update if the update is truly important or a feature addition you value, not every X.0 jump is important.
+
+## Plugin ecosystem
+
+The project includes a hook and plugin framework that allows you to:
+
+- register lifecycle hooks
+- add middleware
+- mount custom endpoints
+- add dashboard routes
+- integrate with server startup and request flow
+
+See [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md) for full examples and API details.
+
+## Contributing
+
+Pull requests are welcome. Please read the contribution guide before opening a PR or starting a larger change.
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## License
 
-Open-source as all things should be, [MIT Licensed](LICENSE)
+Open-source as all things should be, [MIT Licensed](LICENSE).
 
-Not affiliated with, endorsed or approved by RobTop Games AB. Purchase the game on stores such as [Steam](https://store.steampowered.com/app/322170/Geometry_Dash/), [Google Play Store](https://play.google.com/store/apps/details?id=com.robtopx.geometryjump) or the [Apple App Store](https://apps.apple.com/us/app/geometry-dash/id625334537).
+Not affiliated with, endorsed, or approved by RobTop Games AB. Purchase Geometry Dash through the official stores.

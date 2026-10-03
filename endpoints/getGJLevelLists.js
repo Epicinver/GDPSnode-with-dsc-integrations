@@ -147,6 +147,7 @@ module.exports = {
                 break;
             }
 
+            conditions.push('accountID IN (SELECT accountID FROM accounts WHERE isDisabled = 0)');
             if (!isIdSearch) {
                 conditions.push('unlisted = 0');
             }

@@ -233,6 +233,67 @@ button:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
 .level-result > span:last-child { color: var(--muted); font: 11px 'DejaVu Sans Mono', monospace; white-space: nowrap; }
 .level-detail { margin-top: 18px; padding-top: 20px; border-top: 1px dashed var(--line); }
 .browser-open { overflow: hidden; }
+.management-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(4, 8, 6, .82);
+    backdrop-filter: blur(8px);
+}
+.management-window {
+    width: min(760px, 100%);
+    max-height: min(860px, calc(100dvh - 40px));
+    overflow: auto;
+    padding: 22px;
+    background: var(--panel);
+    border: 1px solid var(--lime);
+    box-shadow: 0 24px 80px rgba(0,0,0,.8);
+    overscroll-behavior: contain;
+}
+.permission-window { width: min(960px, 100%); }
+.management-window .browse-header { position: sticky; top: -22px; margin: -22px -22px 18px; padding: 18px 22px 14px; }
+.account-id { color: var(--muted); font: 11px 'DejaVu Sans Mono', monospace; }
+.management-launchers { display: flex; flex-wrap: wrap; gap: 10px; }
+.management-launcher {
+    display: grid;
+    min-width: min(260px, 100%);
+    flex: 1 1 260px;
+    gap: 7px;
+    padding: 16px;
+    text-align: left;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+}
+.management-launcher .eyebrow { color: var(--lime); }
+.management-launcher strong { font-size: 15px; }
+.management-launcher small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.management-launcher:hover { border-color: var(--lime); color: var(--ink); }
+.account-row.account-result { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); }
+.account-manage { flex: 0 0 auto; padding: 8px 12px; }
+.account-form { display: grid; gap: 16px; }
+.moderation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.moderation-grid label { min-width: 0; }
+.account-permissions { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--line); }
+.account-permissions legend { padding: 0 6px; font-size: 12px; font-weight: 700; }
+.account-permissions-reset { margin-top: 12px; }
+.permission-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.permission-check { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px; background: #111713; border: 1px solid var(--line); }
+.permission-check input { width: 16px; }
+.permission-check.unavailable { opacity: .5; }
+.window-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.schema-table-wrap { overflow-x: auto; }
+.schema-table { width: 100%; border-collapse: collapse; }
+.schema-table th, .schema-table td { padding: 10px; border-bottom: 1px solid var(--line); text-align: center; }
+.schema-table th:first-child { min-width: 210px; text-align: left; }
+.schema-table tbody th { font-size: 12px; }
+.schema-table tbody th small { display: block; margin-top: 4px; color: var(--muted); font: 10px 'DejaVu Sans Mono', monospace; }
+.schema-cell { display: flex; justify-content: center; }
+.schema-cell input { width: 16px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .browse-modal {
     position: fixed;
     inset: 0;
@@ -432,6 +493,9 @@ button:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
     .collection-form strong { grid-column: 1 / -1; }
     .song-row { grid-template-columns: 1fr auto; }
     .song-row .delete-song { grid-column: 2; }
+    .management-modal { padding: 10px; }
+    .management-window { max-height: calc(100dvh - 20px); padding: 16px; }
+    .management-window .browse-header { top: -16px; margin: -16px -16px 14px; padding: 14px 16px 12px; }
 }
 @media (max-width: 420px) {
     .stat { padding: 14px; }
@@ -440,4 +504,5 @@ button:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
     .actions label { min-width: 30%; }
     .detail-actions { flex-wrap: wrap; }
     .detail-actions label { min-width: 30%; }
+    .moderation-grid, .permission-checks { grid-template-columns: 1fr; }
 }

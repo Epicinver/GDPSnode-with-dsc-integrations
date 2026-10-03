@@ -31,11 +31,33 @@ module.exports = {
 
         try {
             if (getSent === 0) {
-                requests = db.prepare('SELECT accountID, toAccountID, uploadDate, ID, comment, isNew FROM friendreqs WHERE toAccountID = ? LIMIT 10 OFFSET ?').all(accountID, offset);
-                countResult = db.prepare('SELECT COUNT(*) as count FROM friendreqs WHERE toAccountID = ?').get(accountID);
+                requests = db.prepare(`
+                    SELECT r.accountID, r.toAccountID, r.uploadDate, r.ID, r.comment, r.isNew
+                    FROM friendreqs r
+                    JOIN accounts a ON a.accountID = r.accountID
+                    WHERE r.toAccountID = ? AND a.isDisabled = 0
+                    LIMIT 10 OFFSET ?
+                `).all(accountID, offset);
+                countResult = db.prepare(`
+                    SELECT COUNT(*) as count
+                    FROM friendreqs r
+                    JOIN accounts a ON a.accountID = r.accountID
+                    WHERE r.toAccountID = ? AND a.isDisabled = 0
+                `).get(accountID);
             } else if (getSent === 1) {
-                requests = db.prepare('SELECT accountID, toAccountID, uploadDate, ID, comment, isNew FROM friendreqs WHERE accountID = ? LIMIT 10 OFFSET ?').all(accountID, offset);
-                countResult = db.prepare('SELECT COUNT(*) as count FROM friendreqs WHERE accountID = ?').get(accountID);
+                requests = db.prepare(`
+                    SELECT r.accountID, r.toAccountID, r.uploadDate, r.ID, r.comment, r.isNew
+                    FROM friendreqs r
+                    JOIN accounts a ON a.accountID = r.toAccountID
+                    WHERE r.accountID = ? AND a.isDisabled = 0
+                    LIMIT 10 OFFSET ?
+                `).all(accountID, offset);
+                countResult = db.prepare(`
+                    SELECT COUNT(*) as count
+                    FROM friendreqs r
+                    JOIN accounts a ON a.accountID = r.toAccountID
+                    WHERE r.accountID = ? AND a.isDisabled = 0
+                `).get(accountID);
             }
 
             if (countResult.count === 0) return res.send('-2');
